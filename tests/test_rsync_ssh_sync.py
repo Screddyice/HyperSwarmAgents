@@ -84,7 +84,8 @@ def test_count_transferred_parses_itemize_output(tmp_path: Path):
     assert moved == 3
 
 
-def test_only_on_host_gate_blocks_wrong_host(tmp_path: Path):
+def test_only_on_host_gate_blocks_wrong_host(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("hyperswarm.syncs.rsync_ssh.get_host_identity", lambda: "test-host")
     fake = _make_fake_rsync(tmp_path)
     sync = RsyncSshSync({
         "direction": "push",
@@ -92,14 +93,17 @@ def test_only_on_host_gate_blocks_wrong_host(tmp_path: Path):
         "to_path": str(tmp_path / "x"),
         "from_path": str(tmp_path / "y"),
         "rsync_cmd": fake,
-        "only_on_host": socket.gethostname() + "-NOT-ME",
+        "only_on_host": "different-host",
     })
     assert sync.push() == 0
     # rsync was never invoked
     assert not (tmp_path / "last-argv.txt").exists()
 
 
-def test_only_on_host_gate_passes_matching_host(tmp_path: Path):
+def test_only_on_host_gate_passes_matching_host(tmp_path: Path, monkeypatch):
+    # Pin host identity so it matches the only_on_host value regardless of
+    # whatever ~/.config/hyperswarm/host.identity says on the dev machine.
+    monkeypatch.setattr("hyperswarm.syncs.rsync_ssh.get_host_identity", lambda: "test-host")
     fake = _make_fake_rsync(tmp_path, itemized_lines=1)
     sync = RsyncSshSync({
         "direction": "push",
@@ -107,7 +111,7 @@ def test_only_on_host_gate_passes_matching_host(tmp_path: Path):
         "to_path": str(tmp_path / "x"),
         "from_path": str(tmp_path / "y"),
         "rsync_cmd": fake,
-        "only_on_host": socket.gethostname(),
+        "only_on_host": "test-host",
     })
     assert sync.push() == 1
 
