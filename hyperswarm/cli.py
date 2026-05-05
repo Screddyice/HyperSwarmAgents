@@ -14,7 +14,13 @@ try:
 except ImportError:  # pragma: no cover
     import tomli as tomllib  # type: ignore
 
+from hyperswarm.scopes.git_remote import GitRemoteScope
 from hyperswarm.scopes.path_prefix import PathPrefixScope
+
+_SCOPE_REGISTRY = {
+    "path_prefix": PathPrefixScope,
+    "git_remote": GitRemoteScope,
+}
 from hyperswarm.sources import SOURCE_REGISTRY
 from hyperswarm.stores.markdown import MarkdownStore
 from hyperswarm.syncs import SYNC_REGISTRY
@@ -38,12 +44,13 @@ def _build_store(cfg: dict) -> MarkdownStore:
     return MarkdownStore(store_cfg)
 
 
-def _build_scope(cfg: dict) -> PathPrefixScope:
+def _build_scope(cfg: dict):
     scope_cfg = cfg.get("scope", {}) or {}
     scope_type = scope_cfg.get("type", "path_prefix")
-    if scope_type != "path_prefix":
-        raise SystemExit(f"scope.type={scope_type!r} is not yet implemented; use 'path_prefix'")
-    return PathPrefixScope(scope_cfg)
+    if scope_type not in _SCOPE_REGISTRY:
+        known = sorted(_SCOPE_REGISTRY)
+        raise SystemExit(f"scope.type={scope_type!r} is not implemented; known: {known}")
+    return _SCOPE_REGISTRY[scope_type](scope_cfg)
 
 
 def _find_source_config(cfg: dict, runtime: str) -> dict:
@@ -93,7 +100,8 @@ def cmd_recent(args: argparse.Namespace) -> int:
     for e in entries:
         ts = e.timestamp.strftime("%Y-%m-%d %H:%M")
         scope = e.scope or "-"
-        print(f"{ts}  [{e.runtime:<14}]  {scope:<10}  {e.summary}")
+        project = e.project or "-"
+        print(f"{ts}  [{e.runtime:<14}]  {scope:<10}  {project:<22}  {e.summary}")
     return 0
 
 
@@ -256,14 +264,22 @@ def cmd_check(args: argparse.Namespace) -> int:
         print(f"  warning: store.type={store_type!r} not yet implemented")
 
     scope_cfg = cfg.get("scope") or {}
-    if scope_cfg.get("type") in (None, "path_prefix"):
+    scope_type = scope_cfg.get("type") or "path_prefix"
+    if scope_type == "path_prefix":
         print(
             f"  scope: path_prefix "
             f"({len(scope_cfg.get('path_prefix', []))} path rules, "
             f"{len(scope_cfg.get('hostname', []))} hostname rules)"
         )
+    elif scope_type == "git_remote":
+        print(
+            f"  scope: git_remote "
+            f"({len(scope_cfg.get('git_remote', []))} org rules, "
+            f"{len(scope_cfg.get('path_prefix', []))} path-fallback rules, "
+            f"{len(scope_cfg.get('hostname', []))} hostname rules)"
+        )
     else:
-        print(f"  warning: scope.type={scope_cfg.get('type')!r} not yet implemented")
+        print(f"  warning: scope.type={scope_type!r} not yet implemented")
 
     sources = cfg.get("source") or []
     known_sources = [s.get("type") for s in sources if s.get("type") in SOURCE_REGISTRY]

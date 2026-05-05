@@ -18,6 +18,7 @@ class Entry:
     body: str                         # markdown body (decisions, files, blockers)
     session_id: str = ""              # runtime-provided session id, or ""
     scope: str = ""                   # filled in by orchestrator via Scope plugin
+    project: str = ""                 # optional project name (e.g. git repo name); Scope plugins may set
     timestamp: _dt.datetime = field(
         default_factory=lambda: _dt.datetime.now(_dt.timezone.utc)
     )
@@ -28,6 +29,7 @@ class Entry:
             "---",
             f"runtime: {self.runtime}",
             f"scope: {self.scope}",
+            f"project: {self.project}",
             f"cwd: {self.cwd}",
             f"session_id: {self.session_id}",
             f"timestamp: {ts}",
@@ -65,6 +67,7 @@ class Entry:
             body=body,
             session_id=fm.get("session_id", ""),
             scope=fm.get("scope", ""),
+            project=fm.get("project", ""),
             timestamp=ts,
         )
 

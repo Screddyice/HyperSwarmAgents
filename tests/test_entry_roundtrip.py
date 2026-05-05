@@ -15,11 +15,13 @@ def test_roundtrip():
         body="# Decisions\n\n- chose path X over Y because Z\n",
         session_id="abc123",
         scope="NEB",
+        project="hyper_flow",
         timestamp=ts,
     )
     md = e.to_markdown()
     assert md.startswith("---\n")
     assert "scope: NEB" in md
+    assert "project: hyper_flow" in md
     assert "summary: Wired dual-write into watchdog" in md
 
     e2 = Entry.from_markdown(md)
@@ -28,8 +30,29 @@ def test_roundtrip():
     assert e2.summary == e.summary
     assert e2.session_id == e.session_id
     assert e2.scope == e.scope
+    assert e2.project == e.project
     assert e2.timestamp == e.timestamp
     assert "chose path X over Y" in e2.body
+
+
+def test_legacy_entry_without_project_field_reads_back_empty():
+    """Old entries written before the `project` field existed must still parse."""
+    legacy = (
+        "---\n"
+        "runtime: claude-code\n"
+        "scope: NEB\n"
+        "cwd: /Users/me/projects/teamnebula.ai\n"
+        "session_id: \n"
+        "timestamp: 2026-05-04T22:14:00Z\n"
+        "summary: legacy entry\n"
+        "---\n"
+        "\n"
+        "body content\n"
+    )
+    e = Entry.from_markdown(legacy)
+    assert e.scope == "NEB"
+    assert e.project == ""
+    assert e.summary == "legacy entry"
 
 
 def test_summary_is_collapsed_to_one_line():

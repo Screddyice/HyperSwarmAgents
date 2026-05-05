@@ -27,6 +27,7 @@ Each entry is an append-only markdown file with frontmatter:
 ---
 runtime: claude-code
 scope: NEB              # provided by your Scope plugin
+project: hyper_flow     # optional, set by Scope plugin (e.g. git_remote → repo name)
 cwd: /Users/you/projects/teamnebula.ai/api
 session_id: abc123
 timestamp: 2026-05-04T22:14:00Z
