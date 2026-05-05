@@ -189,6 +189,59 @@ def cmd_install(args: argparse.Namespace) -> int:
     return rc
 
 
+# ----------------------------------------------------------------- push/pull
+def _build_syncs(cfg: dict) -> list:
+    """Instantiate every [[sync]] block whose type is in SYNC_REGISTRY."""
+    out = []
+    for s in cfg.get("sync") or []:
+        t = s.get("type")
+        if t in SYNC_REGISTRY:
+            out.append((t, SYNC_REGISTRY[t](s)))
+    return out
+
+
+def cmd_push(args: argparse.Namespace) -> int:
+    """Run push() on every configured Sync. Each Sync's own only_on_host gate
+    decides whether it actually fires on this host — push() returns 0 if the
+    gate excludes us, so cron can run this everywhere safely.
+    """
+    cfg = _load_config(args.config)
+    syncs = _build_syncs(cfg)
+    if not syncs:
+        if args.verbose:
+            print("no syncs configured")
+        return 0
+    rc = 0
+    for name, sync in syncs:
+        try:
+            n = sync.push()
+            if args.verbose:
+                print(f"{name}: pushed {n} item(s)")
+        except Exception as e:
+            print(f"{name}: push failed: {e}", file=sys.stderr)
+            rc = 1
+    return rc
+
+
+def cmd_pull(args: argparse.Namespace) -> int:
+    cfg = _load_config(args.config)
+    syncs = _build_syncs(cfg)
+    if not syncs:
+        if args.verbose:
+            print("no syncs configured")
+        return 0
+    rc = 0
+    for name, sync in syncs:
+        try:
+            n = sync.pull()
+            if args.verbose:
+                print(f"{name}: pulled {n} item(s)")
+        except Exception as e:
+            print(f"{name}: pull failed: {e}", file=sys.stderr)
+            rc = 1
+    return rc
+
+
 # ----------------------------------------------------------------- check
 def cmd_check(args: argparse.Namespace) -> int:
     cfg = _load_config(args.config)
@@ -263,6 +316,16 @@ def main() -> int:
     _add_config_arg(p_install)
     p_install.add_argument("--runtime", default=None, help="install just this source (defaults to all in config)")
     p_install.set_defaults(func=cmd_install)
+
+    p_push = sub.add_parser("push", help="run push() on every configured Sync")
+    _add_config_arg(p_push)
+    p_push.add_argument("--verbose", "-v", action="store_true")
+    p_push.set_defaults(func=cmd_push)
+
+    p_pull = sub.add_parser("pull", help="run pull() on every configured Sync")
+    _add_config_arg(p_pull)
+    p_pull.add_argument("--verbose", "-v", action="store_true")
+    p_pull.set_defaults(func=cmd_pull)
 
     p_check = sub.add_parser("check", help="validate config and report what plugins are wired")
     _add_config_arg(p_check)
