@@ -1,5 +1,12 @@
-# Reference Source implementations land here in Phase 2:
-#   claude_code.py   — Stop / SessionStart hook
-#   codex.py         — codex CLI wrapper
-#   openclaw.py      — directory watcher for ~/openclaw-memory/entries/
-__all__: list[str] = []
+from hyperswarm.sources.claude_code import ClaudeCodeSource
+from hyperswarm.sources.codex import CodexSource
+from hyperswarm.sources.openclaw import OpenClawSource
+
+SOURCE_REGISTRY: dict[str, type] = {
+    "claude_code": ClaudeCodeSource,
+    "claude-code": ClaudeCodeSource,
+    "codex": CodexSource,
+    "openclaw": OpenClawSource,
+}
+
+__all__ = ["ClaudeCodeSource", "CodexSource", "OpenClawSource", "SOURCE_REGISTRY"]
