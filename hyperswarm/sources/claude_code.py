@@ -30,14 +30,36 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 
 from hyperswarm.core.entry import Entry
 from hyperswarm.core.source import Source
 
 DEFAULT_SETTINGS_PATH = "~/.claude/settings.json"
-DEFAULT_HOOK_COMMAND = "hyperswarm capture --runtime claude-code || true"
 HOOK_MATCHER = ".*"
+
+
+def _resolve_hyperswarm_binary() -> str:
+    """Absolute path to the hyperswarm CLI, falling back to bare name.
+
+    Used at install time so the Stop hook command doesn't depend on
+    Claude Code's $PATH at hook-fire time — CC inherits PATH from however
+    it was launched (terminal vs Spotlight/Dock), and we can't assume the
+    venv's bin dir is there.
+    """
+    return shutil.which("hyperswarm") or "hyperswarm"
+
+
+def _build_default_hook_command() -> str:
+    binary = _resolve_hyperswarm_binary()
+    # Single-quote the path in case it ever contains spaces (HOME paths
+    # under "/Users/Some Name/" do).
+    return f"'{binary}' capture --runtime claude-code || true"
+
+
+# Kept for back-compat with anyone importing the module-level constant.
+DEFAULT_HOOK_COMMAND = "hyperswarm capture --runtime claude-code || true"
 
 
 class ClaudeCodeSource(Source):
@@ -48,7 +70,10 @@ class ClaudeCodeSource(Source):
         self.settings_path = Path(
             os.path.expanduser(self.config.get("settings_path", DEFAULT_SETTINGS_PATH))
         )
-        self.hook_command = self.config.get("hook_command", DEFAULT_HOOK_COMMAND)
+        # User can override via config.toml; otherwise resolve absolute path
+        # on the host doing the install so the hook works regardless of how
+        # Claude Code is later launched.
+        self.hook_command = self.config.get("hook_command") or _build_default_hook_command()
 
     # ------------------------------------------------------------- install
     def install(self) -> None:
@@ -66,7 +91,7 @@ class ClaudeCodeSource(Source):
         # so the user can edit the matcher without us deduplicating wrong).
         for entry in stop_hooks:
             for h in entry.get("hooks", []):
-                if h.get("type") == "command" and "hyperswarm capture" in h.get("command", ""):
+                if h.get("type") == "command" and "capture --runtime claude-code" in h.get("command", ""):
                     h["command"] = self.hook_command  # update if version changed
                     self._write(settings)
                     return
@@ -88,7 +113,7 @@ class ClaudeCodeSource(Source):
         for entry in stop_hooks:
             entry_hooks = [
                 h for h in entry.get("hooks", [])
-                if not (h.get("type") == "command" and "hyperswarm capture" in h.get("command", ""))
+                if not (h.get("type") == "command" and "capture --runtime claude-code" in h.get("command", ""))
             ]
             if entry_hooks:
                 entry["hooks"] = entry_hooks

@@ -25,6 +25,7 @@ How it wires up:
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 from hyperswarm.core.entry import Entry
@@ -34,6 +35,12 @@ DEFAULT_REAL_BINARY = "/opt/homebrew/bin/codex"
 DEFAULT_WRAPPER_PATH = "~/.local/bin/codex"
 DEFAULT_LOG_DIR = "~/.codex/log"
 WRAPPER_SENTINEL = "# managed-by: hyperswarm-agents"
+
+
+def _resolve_hyperswarm_binary() -> str:
+    """Absolute path to hyperswarm at install time, baked into the wrapper.
+    Falls back to bare name (relies on PATH at codex run time)."""
+    return shutil.which("hyperswarm") or "hyperswarm"
 
 
 class CodexSource(Source):
@@ -84,6 +91,7 @@ class CodexSource(Source):
             self.wrapper_path.unlink()
 
     def _wrapper_script(self) -> str:
+        hs_bin = _resolve_hyperswarm_binary()
         return f"""#!/usr/bin/env bash
 {WRAPPER_SENTINEL}
 # Wrapper that intercepts `codex` invocations and snapshots the session
@@ -97,9 +105,12 @@ SESSION_CWD="$PWD"
 "{self.real_binary}" "$@"
 RC=$?
 
-if command -v hyperswarm >/dev/null 2>&1; then
+# Absolute path resolved at install time, so this works even if the user's
+# PATH changes after install.
+HYPERSWARM_BIN="{hs_bin}"
+if [ -x "$HYPERSWARM_BIN" ]; then
     printf '{{"cwd":"%s","since_ts":%s}}' "$SESSION_CWD" "$START_TS" \\
-        | hyperswarm capture --runtime codex >/dev/null 2>&1 || true
+        | "$HYPERSWARM_BIN" capture --runtime codex >/dev/null 2>&1 || true
 fi
 
 exit $RC

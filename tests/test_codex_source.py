@@ -43,7 +43,30 @@ def test_install_writes_executable_wrapper(tmp_path: Path, monkeypatch):
     content = wrapper.read_text()
     assert WRAPPER_SENTINEL in content
     assert str(real) in content
-    assert "hyperswarm capture --runtime codex" in content
+    assert "capture --runtime codex" in content
+
+
+def test_wrapper_bakes_absolute_hyperswarm_path(tmp_path: Path, monkeypatch):
+    """The wrapper must resolve hyperswarm to an absolute path at install
+    time so it works even if the user's PATH changes (e.g., a different
+    shell rc, or codex is invoked from a script with a stripped PATH)."""
+    real = _stub_real_binary(tmp_path)
+    wrapper = tmp_path / "local" / "bin" / "codex"
+
+    # Plant a fake hyperswarm binary that shutil.which will discover.
+    fake_hs = tmp_path / "hs-bin" / "hyperswarm"
+    fake_hs.parent.mkdir(parents=True)
+    fake_hs.write_text("#!/bin/sh\nexit 0\n")
+    fake_hs.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_hs.parent}:{wrapper.parent}:{real.parent}")
+
+    src = CodexSource({"binary": str(real), "wrapper_path": str(wrapper)})
+    src.install()
+
+    content = wrapper.read_text()
+    assert f'HYPERSWARM_BIN="{fake_hs}"' in content, (
+        "wrapper must contain absolute path to hyperswarm, not bare name"
+    )
 
 
 def test_install_fails_when_real_binary_missing(tmp_path: Path, monkeypatch):
