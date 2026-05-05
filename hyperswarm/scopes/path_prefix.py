@@ -19,9 +19,9 @@ Order matters — first match wins, so put more-specific prefixes first.
 from __future__ import annotations
 
 import os
-import socket
 
 from hyperswarm.core.entry import Entry
+from hyperswarm.core.host import get_host_identity
 from hyperswarm.core.scope import Scope
 
 
@@ -33,9 +33,10 @@ class PathPrefixScope(Scope):
         self._fallback = self.config.get("fallback", "")
 
     def tag(self, entry: Entry) -> str:
+        host = get_host_identity()
         for rule in self._host_rules:
             name = rule.get("name", "")
-            if name and name == socket.gethostname():
+            if name and name == host:
                 return rule.get("tag", self._fallback)
 
         cwd = os.path.expanduser(entry.cwd or "") or ""

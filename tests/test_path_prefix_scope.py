@@ -7,8 +7,7 @@
 """
 from __future__ import annotations
 
-import socket
-
+from hyperswarm.core import host as host_mod
 from hyperswarm.core.entry import Entry
 from hyperswarm.scopes.path_prefix import PathPrefixScope
 
@@ -46,10 +45,13 @@ def test_more_specific_prefix_must_be_listed_first():
     assert scope.tag(_entry("/work/teamnebula.ai/api")) == "cross"
 
 
-def test_hostname_rule_overrides_path():
+def test_hostname_rule_overrides_path(monkeypatch):
+    # PathPrefixScope imports get_host_identity at module-load time, so the
+    # patch site is the scope module's namespace, not the host module.
+    monkeypatch.setattr("hyperswarm.scopes.path_prefix.get_host_identity", lambda: "test-host")
     cfg = {
         "path_prefix": [{"prefix": "/", "tag": "personal"}],
-        "hostname": [{"name": socket.gethostname(), "tag": "Cliqk"}],
+        "hostname": [{"name": "test-host", "tag": "Cliqk"}],
     }
     scope = PathPrefixScope(cfg)
     assert scope.tag(_entry("/anywhere")) == "Cliqk"

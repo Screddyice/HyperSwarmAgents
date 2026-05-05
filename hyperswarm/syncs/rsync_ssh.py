@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import os
 import shlex
-import socket
 import subprocess
 from pathlib import Path
 
+from hyperswarm.core.host import get_host_identity
 from hyperswarm.core.sync import Sync
 
 
@@ -42,10 +42,13 @@ class RsyncSshSync(Sync):
     # --------------------------------------------------------------- gates
     def _enabled_here(self) -> bool:
         """Honour the only_on_host gate so a single config can hold sync rules
-        for multiple hosts and each host runs only its own."""
+        for multiple hosts and each host runs only its own.
+
+        Uses host identity (which respects $HYPERSWARM_HOST_IDENTITY override)
+        rather than raw socket.gethostname()."""
         if not self.only_on_host:
             return True
-        return socket.gethostname() == self.only_on_host
+        return get_host_identity() == self.only_on_host
 
     # ------------------------------------------------------------- pushes
     def push(self) -> int:
