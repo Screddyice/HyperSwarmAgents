@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hyperswarm-agents"
+version = "0.1.0"
+description = "Pluggable orchestration layer for agentic context sync — capture session state from any agent runtime, surface it in any other"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Shawn Reddy" }]
+requires-python = ">=3.9"
+keywords = ["agents", "ai", "memory", "claude-code", "codex", "context-sync", "orchestration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "tomli >= 2.0 ; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/Screddyice/HyperSwarmAgents"
+Repository = "https://github.com/Screddyice/HyperSwarmAgents"
+Issues = "https://github.com/Screddyice/HyperSwarmAgents/issues"
+
+[project.scripts]
+hyperswarm = "hyperswarm.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["hyperswarm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

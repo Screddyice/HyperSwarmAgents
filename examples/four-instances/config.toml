@@ -1,0 +1,62 @@
+# Reference config for a four-instance fleet:
+#   - Local Claude Code (Mac)
+#   - Local Codex CLI (Mac)
+#   - Two remote OpenClaw nodes (e.g., one per company / per project)
+#
+# Replace placeholder values (paths, ssh aliases, scope tags) with whatever
+# matches your setup. None of the values here are meaningful by themselves —
+# this file exists to show the shape.
+
+[store]
+type = "markdown"
+path = "~/HyperSwarm"
+
+[scope]
+type = "path_prefix"
+fallback = "cross"
+
+[[scope.path_prefix]]
+prefix = "~/projects/CompanyA"
+tag = "company-a"
+
+[[scope.path_prefix]]
+prefix = "~/projects/CompanyB"
+tag = "company-b"
+
+[[scope.path_prefix]]
+prefix = "~/projects/personal"
+tag = "personal"
+
+[[scope.hostname]]
+name = "remote-a"
+tag = "company-a"
+
+[[scope.hostname]]
+name = "remote-b"
+tag = "company-b"
+
+# Sources — one per runtime you want to capture from.
+[[source]]
+type = "claude_code"
+
+[[source]]
+type = "codex"
+binary = "/opt/homebrew/bin/codex"
+
+[[source]]
+type = "openclaw"
+name = "openclaw-a"
+watch_dir = "~/openclaw-memory/entries"
+
+[[source]]
+type = "openclaw"
+name = "openclaw-b"
+watch_dir = "~/openclaw-memory/entries"
+
+# Syncs — only needed when capture happens off the canonical host.
+# Run these on each remote node; they push to the central Mac.
+[[sync]]
+type = "rsync_ssh"
+direction = "push"
+to_host = "central-mac"
+to_path = "~/HyperSwarm/entries"
