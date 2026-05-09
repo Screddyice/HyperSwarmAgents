@@ -117,9 +117,48 @@ type = "cursor"
 
 That's it. The orchestrator calls `install()` on first run and `capture()` on every hook event.
 
+## Reflectors — making the brain smarter over time
+
+Sources capture-and-store. **Reflectors synthesize across sessions** so the agent gets smarter the longer it's running. Pattern reference: Park et al, "Generative Agents: Interactive Simulacra of Human Behavior" (2023) — Memory Stream → Reflection → Retrieval → Planning. This module implements the Reflection layer.
+
+### `hyperswarm reflect`
+
+```bash
+hyperswarm reflect --agent jarvis
+```
+
+Reads new turns from `~/.openclaw/agents/<agent>/sessions/*.jsonl`, calls an LLM with a strict "extract only high-signal learnings" prompt, and writes zero-or-more YAML-frontmatter markdown blocks into `~/.openclaw/claude-code-history/projects/-Users-screddy-projects/memory/server-learned/<agent>/`. Per-session cursor in `~/.local/state/hyperswarm/reflect/<agent>.json` keeps the next run idempotent.
+
+The output dir is the same one openclaw's `memory_search` already indexes via `extraPaths`, so distilled memories surface to the agent on the next reindex tick. If you also sync the dir to other servers/laptops (via the existing rsync sync stack or your own pipe), reflections written on one host become available to all of them.
+
+**Cost**: with `gpt-4o-mini` (default) one reflection run is roughly $0.001-0.005 per session depending on turn count. Run hourly per agent, expect ~$1/month/agent. Override with `--model` or `HYPERSWARM_REFLECT_MODEL` env var.
+
+**Auth**: the reflection LLM call uses `OPENAI_API_KEY` from the process environment.
+
+**Recommended cron** on each server:
+
+```bash
+0 */6 * * * /home/ubuntu/.local/bin/hyperswarm reflect --agent jarvis >> ~/.local/state/hyperswarm/reflect.log 2>&1
+```
+
+### Building your own reflector
+
+```python
+from hyperswarm.reflectors.openclaw_session import OpenClawSessionReflector
+
+result = OpenClawSessionReflector(
+    agent="jarvis",
+    host="my-server",
+    output_base="~/wherever/memory/server-learned",
+    llm_call=my_llm_function,  # for tests or alternate providers
+).run()
+```
+
+The `llm_call` is fully injectable (any `messages: list[dict] -> str` callable), so swapping providers (Anthropic, local, Ollama) is straightforward.
+
 ## Status
 
-This is Phase 1 of an open-source rollout: scaffolding, plugin interfaces, reference Scope + Store implementations, tests. Phase 2 fills in the Source reference implementations (Claude Code Stop hook, Codex wrapper, OpenClaw watcher); Phase 3 adds the read-on-start digest that surfaces recent context to a new session on any runtime.
+This is Phase 1 of an open-source rollout: scaffolding, plugin interfaces, reference Scope + Store implementations, tests. Phase 2 fills in the Source reference implementations (Claude Code Stop hook, Codex wrapper, OpenClaw watcher); Phase 3 adds the read-on-start digest that surfaces recent context to a new session on any runtime. Reflectors (Phase 4) synthesize across sessions for compounding intelligence.
 
 ## License
 

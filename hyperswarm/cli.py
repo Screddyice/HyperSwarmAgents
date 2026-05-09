@@ -347,8 +347,58 @@ def main() -> int:
     _add_config_arg(p_check)
     p_check.set_defaults(func=cmd_check)
 
+    p_reflect = sub.add_parser(
+        "reflect",
+        help="distill recent agent sessions into curated memory files",
+    )
+    p_reflect.add_argument(
+        "--agent",
+        required=True,
+        help="openclaw agent id whose sessions to reflect on (e.g. jarvis, clawdbot)",
+    )
+    p_reflect.add_argument(
+        "--host",
+        default=None,
+        help="hostname tag for provenance (defaults to socket.gethostname())",
+    )
+    p_reflect.add_argument(
+        "--model",
+        default=None,
+        help="LLM model id (default $HYPERSWARM_REFLECT_MODEL or gpt-4o-mini)",
+    )
+    p_reflect.add_argument(
+        "--max-turns",
+        type=int,
+        default=None,
+        help="cap on user/assistant turns sent per session (default 60)",
+    )
+    p_reflect.add_argument("--verbose", "-v", action="store_true")
+    p_reflect.set_defaults(func=cmd_reflect)
+
     args = parser.parse_args()
     return args.func(args)
+
+
+def cmd_reflect(args: argparse.Namespace) -> int:
+    """Run a single reflection pass for one agent."""
+    from hyperswarm.reflectors.openclaw_session import OpenClawSessionReflector
+
+    kwargs: dict = {"agent": args.agent}
+    if args.host:
+        kwargs["host"] = args.host
+    if args.model:
+        kwargs["model"] = args.model
+    if args.max_turns is not None:
+        kwargs["max_turns"] = args.max_turns
+    result = OpenClawSessionReflector(**kwargs).run()
+    if args.verbose:
+        print(json.dumps(result, indent=2))
+    else:
+        print(
+            f"agent={result['agent']} sessions_processed={result.get('sessions_processed', 0)} "
+            f"written={result.get('written', 0)}"
+        )
+    return 0
 
 
 if __name__ == "__main__":
