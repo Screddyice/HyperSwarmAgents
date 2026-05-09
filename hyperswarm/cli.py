@@ -347,6 +347,58 @@ def main() -> int:
     _add_config_arg(p_check)
     p_check.set_defaults(func=cmd_check)
 
+    p_watch = sub.add_parser(
+        "watch",
+        help="long-running daemon that fires reflect+tune on session-end (replaces per-agent cron)",
+    )
+    p_watch.add_argument(
+        "--agent",
+        action="append",
+        required=True,
+        help="agent id to watch (repeat for multiple: --agent jarvis --agent clawdbot)",
+    )
+    p_watch.add_argument("--poll-interval", type=int, default=None, help="seconds between scans (default 30)")
+    p_watch.add_argument(
+        "--debounce",
+        type=int,
+        default=None,
+        help="seconds of session idle before triggering (default 300 = 5 min)",
+    )
+    p_watch.add_argument("--no-tune", action="store_true", help="run reflect only, skip tune-collect/trigger")
+    p_watch.set_defaults(func=cmd_watch)
+
+    p_tune_collect = sub.add_parser(
+        "tune-collect",
+        help="append new user/assistant pairs from agent sessions to the fine-tune corpus",
+    )
+    p_tune_collect.add_argument("--agent", required=True)
+    p_tune_collect.add_argument("--host", default=None)
+    p_tune_collect.add_argument("--verbose", "-v", action="store_true")
+    p_tune_collect.set_defaults(func=cmd_tune_collect)
+
+    p_tune_trigger = sub.add_parser(
+        "tune-trigger",
+        help="upload corpus and create an OpenAI fine-tune job (idempotent: skips if a previous job is still running or threshold not met)",
+    )
+    p_tune_trigger.add_argument("--agent", required=True)
+    p_tune_trigger.add_argument("--base-model", default=None, help="base model id (default gpt-4o-mini-2024-07-18)")
+    p_tune_trigger.add_argument(
+        "--min-new-examples",
+        type=int,
+        default=None,
+        help="threshold: skip if fewer than this many new examples since last job (default 50)",
+    )
+    p_tune_trigger.add_argument("--verbose", "-v", action="store_true")
+    p_tune_trigger.set_defaults(func=cmd_tune_trigger)
+
+    p_tune_status = sub.add_parser(
+        "tune-status",
+        help="check the status of the most recent fine-tune job and capture the resulting model id when ready",
+    )
+    p_tune_status.add_argument("--agent", required=True)
+    p_tune_status.add_argument("--verbose", "-v", action="store_true")
+    p_tune_status.set_defaults(func=cmd_tune_status)
+
     p_reflect = sub.add_parser(
         "reflect",
         help="distill recent agent sessions into curated memory files",
@@ -377,6 +429,75 @@ def main() -> int:
 
     args = parser.parse_args()
     return args.func(args)
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    """Long-running watch loop. Blocks until interrupted."""
+    from hyperswarm.watchers.openclaw_sessions import OpenClawSessionWatcher
+
+    kwargs: dict = {"agents": list(args.agent)}
+    if args.poll_interval is not None:
+        kwargs["poll_interval_s"] = args.poll_interval
+    if args.debounce is not None:
+        kwargs["debounce_s"] = args.debounce
+    if args.no_tune:
+        kwargs["enable_tune"] = False
+    OpenClawSessionWatcher(**kwargs).loop()
+    return 0
+
+
+def cmd_tune_collect(args: argparse.Namespace) -> int:
+    """Append new user/assistant pairs to the fine-tune corpus."""
+    from hyperswarm.tuners.openclaw_corpus import OpenClawCorpusCollector
+
+    kwargs: dict = {"agent": args.agent}
+    if args.host:
+        kwargs["host"] = args.host
+    result = OpenClawCorpusCollector(**kwargs).run()
+    if args.verbose:
+        print(json.dumps(result, indent=2))
+    else:
+        print(
+            f"agent={result['agent']} appended={result.get('appended', 0)} "
+            f"total_examples={result.get('total_examples', 0)}"
+        )
+    return 0
+
+
+def cmd_tune_trigger(args: argparse.Namespace) -> int:
+    """Upload corpus + create OpenAI fine-tune job. Idempotent."""
+    from hyperswarm.tuners.openai_finetune import OpenAIFineTuneClient
+
+    kwargs: dict = {"agent": args.agent}
+    if args.base_model:
+        kwargs["base_model"] = args.base_model
+    if args.min_new_examples is not None:
+        kwargs["min_new_examples"] = args.min_new_examples
+    result = OpenAIFineTuneClient(**kwargs).trigger()
+    if args.verbose:
+        print(json.dumps(result, indent=2))
+    else:
+        st = result.get("status")
+        if st == "started":
+            print(f"agent={args.agent} job_id={result['job_id']} examples={result['examples']}")
+        else:
+            print(f"agent={args.agent} status={st} reason={result.get('reason', '')}")
+    return 0
+
+
+def cmd_tune_status(args: argparse.Namespace) -> int:
+    """Refresh fine-tune job status, capture model id if succeeded."""
+    from hyperswarm.tuners.openai_finetune import OpenAIFineTuneClient
+
+    result = OpenAIFineTuneClient(agent=args.agent).status()
+    if args.verbose:
+        print(json.dumps(result, indent=2))
+    else:
+        print(
+            f"agent={args.agent} job_status={result.get('status')} "
+            f"current_model={result.get('current_model')}"
+        )
+    return 0
 
 
 def cmd_reflect(args: argparse.Namespace) -> int:
