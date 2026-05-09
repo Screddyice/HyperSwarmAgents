@@ -171,38 +171,60 @@ session JSONLs                 (raw)
        ├── filter (length bounds, drop tool-result noise)
        └── append OpenAI-chat-format examples to corpus.jsonl
        │
-       ▼ hyperswarm tune-trigger --agent <id>
+       ▼ hyperswarm tune-train-local --agent <id>     (run on a CUDA host)
        │
-       ├── guard: skip if a previous job is still running
+       ├── guard: skip if a previous run still claims "running"
        ├── guard: skip if new examples since last run < threshold (default 50)
-       └── upload corpus → create OpenAI fine-tune job → record job id
+       └── load corpus → Unsloth LoRA train → save adapter (+ optional GGUF)
        │
        ▼ hyperswarm tune-status --agent <id>
        │
-       └── poll job state, capture model id when succeeded
+       └── read state, report current adapter / GGUF path
                   │
                   ▼
-            ft:gpt-4o-mini-...:org::personalized-jarvis-N
+        ~/.openclaw/tune/<agent>/lora-output/<run-id>/adapter/
+        + (optional) Qwen3-8B-q4_k_m.gguf  ← Ollama can load directly
             now available for selective routing
 ```
+
+### Backend: self-hosted LoRA via Unsloth (Karpathy-style)
+
+Earlier iterations used hosted fine-tune services (OpenAI fine-tune, Together.ai). OpenAI announced wind-down of their public fine-tune product, and we ruled out the hosted-service path entirely. The current backend is **Unsloth** running locally on a CUDA host: own model, own data, own training, downloadable weights. Aligned with Karpathy's "weights vs context" framing — this is the weights side.
+
+Default base model: `Qwen/Qwen3-8B`. Switchable via `--base-model` to any HuggingFace model id Unsloth supports (Llama 3.1 8B/70B, Mistral 7B/22B, Phi 4, etc.).
+
+**Where to run training:**
+
+- A host with a CUDA GPU. 16GB VRAM is the floor for 8B models (4-bit base + LoRA fits); 24GB+ is comfortable.
+- NOT on the CPU-only AWS t3 instances that run openclaw inference. The watcher's host and the trainer's host are intentionally separated.
+- Typical setups: a RunPod / Lambda Labs box pulled for a single training job (~$0.50/hr × 30-60 min/job ≈ $0.25-0.50/job), or an owned consumer GPU pulling the corpus over SCP.
 
 State per agent:
 
 - Corpus:        `~/.openclaw/tune/<agent>/corpus.jsonl`
 - Cursors:       `~/.local/state/hyperswarm/tune/<agent>/corpus-cursors.json`
-- Fine-tune:     `~/.local/state/hyperswarm/tune/<agent>/finetune-state.json`
+- Training state: `~/.local/state/hyperswarm/tune/<agent>/finetune-state.json` (`backend: "lora-local"`, `current_adapter`, `current_gguf`, full history)
 
-The fine-tune-state file holds the current model id, full job history, and last-known statuses — it's the source of truth for "which fine-tuned model represents this agent right now."
+The state file shape is intentionally backend-agnostic — the `current_adapter` / `current_gguf` keys let any router downstream understand "which model represents this agent right now" regardless of which trainer wrote it.
 
-### Cost (default config, gpt-4o-mini)
+### Cost
 
-- Training: ~$3 per 1M tokens. A 100-example corpus is roughly $0.45 per cycle. A 500-example corpus is ~$2.25.
-- Inference: $0.30/1M input, $1.20/1M output for fine-tuned gpt-4o-mini. Roughly 2× stock pricing.
-- Recommended pattern: keep your stock reasoning model (Codex / Claude / etc.) as the primary, route the fine-tuned model only for personalization-flavored decisions (drafting in your voice, picking your tone, recalling preferences). Total: $5-15/month per agent at moderate use.
+- Cloud GPU ad-hoc (RunPod 4090): $0.30-0.50/hr × ~30 min per cycle ≈ $0.15-0.25/cycle
+- Owned 4090: one-time hardware + ~$0.05 of electricity per cycle
+- Inference: free (run on your existing CPU server via Ollama, or on the same GPU host)
+- vs hosted fine-tune ($5-15/month/agent and dependent on a vendor that may sunset): substantially cheaper at scale and zero vendor lock.
 
-### Auth
+### Dependencies
 
-`OPENAI_API_KEY` in the process environment. The OpenAI client picks it up automatically.
+```bash
+pip install unsloth trl datasets torch
+```
+
+CUDA-only. Cleanly raises `RuntimeError("Local LoRA training requires ...")` on a CPU host so the orchestration code can be imported and tested anywhere — only the `_real_train` path needs the GPU.
+
+### Optional: GGUF export for Ollama
+
+Pass `--export-gguf` and the trainer also writes a quantized GGUF file alongside the adapter. Ollama can `ollama create my-jarvis -f Modelfile` against that GGUF, making the personalized model loadable on any of the CPU inference servers.
 
 ## Watchers — event-driven, no constant crons
 
@@ -218,9 +240,10 @@ Polls session JSONLs every 30 seconds (configurable). When a session has been id
 
 1. `hyperswarm reflect --agent <id>`
 2. `hyperswarm tune-collect --agent <id>`
-3. `hyperswarm tune-trigger --agent <id>`
 
-All three are idempotent (cursors + thresholds), so re-firing on a session that didn't add new turns is free. Use `--no-tune` to run reflect-only.
+Both are idempotent (cursors + thresholds), so re-firing on a session that didn't add new turns is free. Use `--no-tune` to run reflect-only.
+
+The watcher does **not** auto-fire `tune-train-local` — training requires a CUDA GPU which the watcher's host (typically a CPU inference server) lacks. Training is a manual step run on a separate GPU host that pulls the corpus, trains, and writes the adapter back. This intentional split keeps the watcher cheap and reliable.
 
 ### Systemd unit (recommended)
 

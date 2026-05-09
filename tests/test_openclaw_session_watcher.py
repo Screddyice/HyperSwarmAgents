@@ -3,7 +3,9 @@ reflect/tune-collect/tune-trigger on session-end.
 
 The watcher is a coordinator (no LLM calls of its own), so tests focus on:
 - which sessions get marked ready (mtime + debounce logic)
-- the right CLI subprocess calls fire in the right order
+- the right CLI subprocess calls fire in the right order (reflect → tune-collect;
+  training is NOT auto-fired because it requires CUDA which the watcher host
+  likely lacks)
 - already-processed sessions don't re-fire until there's new activity
 - failure of one CLI call doesn't break the loop
 """
@@ -133,11 +135,11 @@ def test_process_fires_three_subprocess_calls_in_order(tmp_path: Path, monkeypat
 
     w._process("jarvis", "session-c")
 
-    # 3 calls: reflect, tune-collect, tune-trigger
-    assert len(calls) == 3
+    # 2 calls: reflect, tune-collect (training is manual on a GPU host, not
+    # auto-fired by the watcher)
+    assert len(calls) == 2
     assert calls[0] == ["/usr/bin/hyperswarm", "reflect", "--agent", "jarvis"]
     assert calls[1] == ["/usr/bin/hyperswarm", "tune-collect", "--agent", "jarvis"]
-    assert calls[2] == ["/usr/bin/hyperswarm", "tune-trigger", "--agent", "jarvis"]
     # processed_mtime advances
     s = w._state[("jarvis", "session-c")]
     assert s.last_processed_mtime == s.last_mtime

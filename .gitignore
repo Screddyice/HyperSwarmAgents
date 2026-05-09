@@ -16,3 +16,5 @@ config/local.toml
 
 # Claude Code - Local settings
 .claude/settings.local.json
+.claude-harness/
+CLAUDE.md
