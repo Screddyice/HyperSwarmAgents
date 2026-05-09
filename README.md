@@ -156,9 +156,97 @@ result = OpenClawSessionReflector(
 
 The `llm_call` is fully injectable (any `messages: list[dict] -> str` callable), so swapping providers (Anthropic, local, Ollama) is straightforward.
 
+## Tuners — slow learning. Update model weights, not just context.
+
+Where Reflectors update *context* (fast learning), Tuners update *weights* (slow learning). Karpathy's framing: there are two learning channels in any AI system, and a personal assistant that gets genuinely smarter from your interactions needs both.
+
+### Pipeline
+
+```
+session JSONLs                 (raw)
+       │
+       ▼ hyperswarm tune-collect --agent <id>
+       │
+       ├── pair user→assistant turns
+       ├── filter (length bounds, drop tool-result noise)
+       └── append OpenAI-chat-format examples to corpus.jsonl
+       │
+       ▼ hyperswarm tune-trigger --agent <id>
+       │
+       ├── guard: skip if a previous job is still running
+       ├── guard: skip if new examples since last run < threshold (default 50)
+       └── upload corpus → create OpenAI fine-tune job → record job id
+       │
+       ▼ hyperswarm tune-status --agent <id>
+       │
+       └── poll job state, capture model id when succeeded
+                  │
+                  ▼
+            ft:gpt-4o-mini-...:org::personalized-jarvis-N
+            now available for selective routing
+```
+
+State per agent:
+
+- Corpus:        `~/.openclaw/tune/<agent>/corpus.jsonl`
+- Cursors:       `~/.local/state/hyperswarm/tune/<agent>/corpus-cursors.json`
+- Fine-tune:     `~/.local/state/hyperswarm/tune/<agent>/finetune-state.json`
+
+The fine-tune-state file holds the current model id, full job history, and last-known statuses — it's the source of truth for "which fine-tuned model represents this agent right now."
+
+### Cost (default config, gpt-4o-mini)
+
+- Training: ~$3 per 1M tokens. A 100-example corpus is roughly $0.45 per cycle. A 500-example corpus is ~$2.25.
+- Inference: $0.30/1M input, $1.20/1M output for fine-tuned gpt-4o-mini. Roughly 2× stock pricing.
+- Recommended pattern: keep your stock reasoning model (Codex / Claude / etc.) as the primary, route the fine-tuned model only for personalization-flavored decisions (drafting in your voice, picking your tone, recalling preferences). Total: $5-15/month per agent at moderate use.
+
+### Auth
+
+`OPENAI_API_KEY` in the process environment. The OpenAI client picks it up automatically.
+
+## Watchers — event-driven, no constant crons
+
+Reflectors and Tuners are CLI commands. Running them on a calendar (`*/6 * * *`) wastes both LLM dollars and your patience. **Watchers** are long-running daemons that fire reflect+tune ONLY when a session has actually ended (idle for N seconds).
+
+### `hyperswarm watch`
+
+```bash
+hyperswarm watch --agent jarvis --agent clawdbot
+```
+
+Polls session JSONLs every 30 seconds (configurable). When a session has been idle for 5 minutes (configurable via `--debounce`), the watcher fires:
+
+1. `hyperswarm reflect --agent <id>`
+2. `hyperswarm tune-collect --agent <id>`
+3. `hyperswarm tune-trigger --agent <id>`
+
+All three are idempotent (cursors + thresholds), so re-firing on a session that didn't add new turns is free. Use `--no-tune` to run reflect-only.
+
+### Systemd unit (recommended)
+
+Drop one unit per server, watching all agents on that host:
+
+```ini
+# ~/.config/systemd/user/hyperswarm-watch.service
+[Unit]
+Description=HyperSwarm session watcher (event-driven reflect + tune)
+After=network-online.target
+
+[Service]
+EnvironmentFile=-/home/ubuntu/.openclaw/.env
+ExecStart=%h/.local/bin/hyperswarm watch --agent jarvis --agent clawdbot
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+Then `systemctl --user enable --now hyperswarm-watch.service`. The watcher uses ~1% CPU at idle and never spawns LLM calls itself; all costs are gated through the reflect/tune subcommands' own thresholds.
+
 ## Status
 
-This is Phase 1 of an open-source rollout: scaffolding, plugin interfaces, reference Scope + Store implementations, tests. Phase 2 fills in the Source reference implementations (Claude Code Stop hook, Codex wrapper, OpenClaw watcher); Phase 3 adds the read-on-start digest that surfaces recent context to a new session on any runtime. Reflectors (Phase 4) synthesize across sessions for compounding intelligence.
+This is Phase 1 of an open-source rollout: scaffolding, plugin interfaces, reference Scope + Store implementations, tests. Phase 2 fills in the Source reference implementations (Claude Code Stop hook, Codex wrapper, OpenClaw watcher); Phase 3 adds the read-on-start digest that surfaces recent context to a new session on any runtime. Reflectors (Phase 4) synthesize across sessions for context-layer compounding. Tuners (Phase 5, this PR) close the loop by updating model weights from accumulated interactions. Watchers (Phase 5) replace crons with event-driven triggers.
 
 ## License
 
