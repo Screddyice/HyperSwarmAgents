@@ -187,17 +187,43 @@ session JSONLs                 (raw)
             now available for selective routing
 ```
 
-### Backend: self-hosted LoRA via Unsloth (Karpathy-style)
+### Backend: self-hosted LoRA, two paths
 
-Earlier iterations used hosted fine-tune services (OpenAI fine-tune, Together.ai). OpenAI announced wind-down of their public fine-tune product, and we ruled out the hosted-service path entirely. The current backend is **Unsloth** running locally on a CUDA host: own model, own data, own training, downloadable weights. Aligned with Karpathy's "weights vs context" framing — this is the weights side.
+Earlier iterations used hosted fine-tune services (OpenAI, Together). OpenAI sunset their endpoint and we ruled out hosted services entirely. Current model: own model, own data, own training, downloadable weights. Aligned with Karpathy's "weights vs context" framing — this is the weights side.
 
-Default base model: `Qwen/Qwen3-8B`. Switchable via `--base-model` to any HuggingFace model id Unsloth supports (Llama 3.1 8B/70B, Mistral 7B/22B, Phi 4, etc.).
+Two backends ship with the same CLI shape; `tune-train-local` auto-picks based on host:
 
-**Where to run training:**
+| Backend | When picked | Why |
+|---|---|---|
+| **MLX** (`lora_mlx.py`) — primary | macOS arm64 (M-series) | Free, private, fast on Apple Silicon Max-tier (unified memory; no GPU partition limits). Wraps `mlx_lm.lora --train`. |
+| **Unsloth** (`lora_local.py`) — secondary | Linux + CUDA | Fallback when the Mac is offline. Wraps Unsloth + TRL. |
 
-- A host with a CUDA GPU. 16GB VRAM is the floor for 8B models (4-bit base + LoRA fits); 24GB+ is comfortable.
-- NOT on the CPU-only AWS t3 instances that run openclaw inference. The watcher's host and the trainer's host are intentionally separated.
-- Typical setups: a RunPod / Lambda Labs box pulled for a single training job (~$0.50/hr × 30-60 min/job ≈ $0.25-0.50/job), or an owned consumer GPU pulling the corpus over SCP.
+Default base model: `Qwen/Qwen3-8B`. Switchable via `--base-model` to any HF model id either backend supports.
+
+```bash
+# Auto-detect (MLX on Mac, Unsloth on CUDA, error otherwise):
+hyperswarm tune-train-local --agent clawdbot
+
+# Force a specific backend:
+hyperswarm tune-train-local --agent clawdbot --backend mlx
+hyperswarm tune-train-local --agent clawdbot --backend unsloth
+```
+
+### Mac as primary trainer: `tune-pull-train-push`
+
+The full Mac-side workflow in one command — pulls a server's accumulated corpus, trains locally with MLX, pushes the resulting adapter back:
+
+```bash
+hyperswarm tune-pull-train-push --agent clawdbot --from-host neb-server
+```
+
+Sequence: `scp neb-server:~/.openclaw/tune/clawdbot/corpus.jsonl ~/.openclaw/tune/clawdbot/corpus.jsonl` → `hyperswarm tune-train-local --agent clawdbot --backend mlx` → wait for MLX to train against the corpus on Apple Silicon GPU → on success, `scp -r` the adapter directory + state file back to `neb-server`. End-to-end in one command, idempotent, threshold-gated.
+
+Pass `--no-push` to keep the adapter local-only (useful for testing).
+
+### When the Mac is off: server-side fallback
+
+If your Mac isn't reachable when you want to train, the same corpus can be trained on a Linux+CUDA host directly. SSH into the GPU box, pull the corpus, run `hyperswarm tune-train-local --agent <id>` — the auto-detector picks Unsloth and the run produces adapter + optional GGUF export. State files share the same shape across backends, so a Mac-trained adapter and a CUDA-trained adapter are interchangeable downstream.
 
 State per agent:
 

@@ -376,18 +376,54 @@ def main() -> int:
     p_tune_collect.add_argument("--verbose", "-v", action="store_true")
     p_tune_collect.set_defaults(func=cmd_tune_collect)
 
+    p_tune_ptp = sub.add_parser(
+        "tune-pull-train-push",
+        help="Mac-side helper: pull a server's corpus, train locally with MLX, push the adapter back",
+    )
+    p_tune_ptp.add_argument("--agent", required=True, help="agent id whose corpus to pull (e.g. clawdbot)")
+    p_tune_ptp.add_argument(
+        "--from-host",
+        required=True,
+        help="ssh alias to pull corpus from (e.g. neb-server, cliqk-server)",
+    )
+    p_tune_ptp.add_argument(
+        "--base-model", default=None, help="HF model id (default Qwen/Qwen3-8B)"
+    )
+    p_tune_ptp.add_argument("--rank", type=int, default=None, help="LoRA num-layers (default 16)")
+    p_tune_ptp.add_argument("--iters", type=int, default=None, help="training iters (default 600)")
+    p_tune_ptp.add_argument(
+        "--min-new-examples",
+        type=int,
+        default=None,
+        help="threshold: skip if fewer than this many new examples (default 50)",
+    )
+    p_tune_ptp.add_argument(
+        "--no-push",
+        action="store_true",
+        help="train locally only; do not scp the adapter back to --from-host",
+    )
+    p_tune_ptp.add_argument("--verbose", "-v", action="store_true")
+    p_tune_ptp.set_defaults(func=cmd_tune_pull_train_push)
+
     p_tune_train = sub.add_parser(
         "tune-train-local",
-        help="LoRA fine-tune on the local GPU using Unsloth (Karpathy-style: own model, own data, own training)",
+        help="LoRA fine-tune locally (auto-detects backend: MLX on macOS arm64, Unsloth on Linux+CUDA)",
     )
     p_tune_train.add_argument("--agent", required=True)
+    p_tune_train.add_argument(
+        "--backend",
+        choices=("auto", "mlx", "unsloth"),
+        default="auto",
+        help="training backend (default auto: MLX on macOS arm64, Unsloth on Linux+CUDA)",
+    )
     p_tune_train.add_argument(
         "--base-model",
         default=None,
         help="HF model id (default Qwen/Qwen3-8B, switchable to meta-llama/Meta-Llama-3.1-8B-Instruct etc.)",
     )
-    p_tune_train.add_argument("--rank", type=int, default=None, help="LoRA rank (default 16)")
-    p_tune_train.add_argument("--epochs", type=int, default=None, help="training epochs (default 3)")
+    p_tune_train.add_argument("--rank", type=int, default=None, help="LoRA rank / num-layers (default 16)")
+    p_tune_train.add_argument("--epochs", type=int, default=None, help="(Unsloth backend) training epochs (default 3)")
+    p_tune_train.add_argument("--iters", type=int, default=None, help="(MLX backend) training iterations (default 600)")
     p_tune_train.add_argument(
         "--min-new-examples",
         type=int,
@@ -397,7 +433,7 @@ def main() -> int:
     p_tune_train.add_argument(
         "--export-gguf",
         action="store_true",
-        help="after training, export the merged LoRA model to GGUF (so Ollama can load it directly)",
+        help="(Unsloth backend) after training, export the merged LoRA model to GGUF for Ollama loadability",
     )
     p_tune_train.add_argument("--verbose", "-v", action="store_true")
     p_tune_train.set_defaults(func=cmd_tune_train_local)
@@ -475,45 +511,191 @@ def cmd_tune_collect(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_tune_train_local(args: argparse.Namespace) -> int:
-    """LoRA fine-tune on local GPU via Unsloth. Karpathy-style: own model, own data."""
-    from hyperswarm.tuners.lora_local import LocalLoRATrainer
+def cmd_tune_pull_train_push(args: argparse.Namespace) -> int:
+    """End-to-end Mac trainer: scp corpus from a server, train via MLX, scp
+    the resulting adapter back. Designed for the workflow 'Mac is primary
+    trainer when awake; cloud GPU is fallback when Mac is off.'"""
+    import subprocess
+    from pathlib import Path
 
+    home = Path.home()
+    local_corpus_dir = home / ".openclaw" / "tune" / args.agent
+    local_corpus = local_corpus_dir / "corpus.jsonl"
+    remote_corpus = f"~/.openclaw/tune/{args.agent}/corpus.jsonl"
+
+    local_corpus_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[ptp] pulling {args.from_host}:{remote_corpus} → {local_corpus}", file=sys.stderr)
+    pull = subprocess.run(
+        ["scp", f"{args.from_host}:{remote_corpus}", str(local_corpus)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if pull.returncode != 0:
+        print(f"[ptp] scp pull failed: {pull.stderr.strip()}", file=sys.stderr)
+        return 1
+
+    train_args = ["hyperswarm", "tune-train-local", "--agent", args.agent, "--backend", "mlx"]
+    if args.base_model:
+        train_args += ["--base-model", args.base_model]
+    if args.rank is not None:
+        train_args += ["--rank", str(args.rank)]
+    if args.iters is not None:
+        train_args += ["--iters", str(args.iters)]
+    if args.min_new_examples is not None:
+        train_args += ["--min-new-examples", str(args.min_new_examples)]
+    if args.verbose:
+        train_args.append("--verbose")
+    print(f"[ptp] running: {' '.join(train_args)}", file=sys.stderr)
+    train = subprocess.run(train_args, capture_output=False)
+    if train.returncode != 0:
+        return train.returncode
+
+    if args.no_push:
+        print("[ptp] --no-push: skipping adapter upload to source host", file=sys.stderr)
+        return 0
+
+    # Find the adapter dir written by the most recent successful run
+    from hyperswarm.tuners.lora_mlx import MLXLoRATrainer
+
+    state = MLXLoRATrainer(agent=args.agent).status()
+    adapter_path = state.get("current_adapter")
+    if not adapter_path:
+        print("[ptp] no adapter recorded after training; nothing to push", file=sys.stderr)
+        return 1
+    adapter_dir = Path(adapter_path)
+    if not adapter_dir.exists():
+        print(f"[ptp] state references missing adapter dir {adapter_dir}", file=sys.stderr)
+        return 1
+
+    # Push the adapter dir + the state file (so the source host knows about
+    # the new adapter)
+    run_dir = adapter_dir.parent
+    relative = run_dir.relative_to(home)
+    remote_run_dir = f"~/{relative}"
+    print(f"[ptp] pushing {run_dir} → {args.from_host}:{remote_run_dir}", file=sys.stderr)
+    subprocess.run(
+        ["ssh", args.from_host, f"mkdir -p {remote_run_dir}"],
+        check=True,
+        timeout=60,
+    )
+    push = subprocess.run(
+        ["scp", "-r", str(run_dir) + "/", f"{args.from_host}:{remote_run_dir}/"],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if push.returncode != 0:
+        print(f"[ptp] scp push failed: {push.stderr.strip()}", file=sys.stderr)
+        return 1
+
+    state_file = home / ".local" / "state" / "hyperswarm" / "tune" / args.agent / "finetune-state.json"
+    if state_file.exists():
+        remote_state = f".local/state/hyperswarm/tune/{args.agent}/finetune-state.json"
+        subprocess.run(
+            ["ssh", args.from_host, f"mkdir -p $(dirname {remote_state})"],
+            check=True,
+            timeout=60,
+        )
+        subprocess.run(
+            ["scp", str(state_file), f"{args.from_host}:{remote_state}"],
+            check=True,
+            timeout=60,
+        )
+        print(f"[ptp] pushed state file → {args.from_host}:{remote_state}", file=sys.stderr)
+
+    print(
+        f"[ptp] done. agent={args.agent} adapter={adapter_path} pushed-to={args.from_host}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _resolve_train_backend(requested: str) -> str:
+    """Map --backend to a concrete backend name. 'auto' picks MLX on macOS
+    arm64 if mlx-lm is importable, else Unsloth on a CUDA host, else raises."""
+    if requested != "auto":
+        return requested
+    from hyperswarm.tuners.lora_mlx import is_mlx_available
+    if is_mlx_available():
+        return "mlx"
+    from hyperswarm.tuners.lora_local import is_cuda_available
+    if is_cuda_available():
+        return "unsloth"
+    raise SystemExit(
+        "tune-train-local: no compatible backend detected. Install mlx-lm on "
+        "macOS arm64 or torch+unsloth on a CUDA host, then re-run with "
+        "--backend mlx or --backend unsloth explicitly."
+    )
+
+
+def cmd_tune_train_local(args: argparse.Namespace) -> int:
+    """LoRA fine-tune locally. Auto-detects MLX (Mac primary) vs Unsloth (CUDA)."""
+    backend = _resolve_train_backend(args.backend)
     kwargs: dict = {"agent": args.agent}
     if args.base_model:
         kwargs["base_model"] = args.base_model
-    if args.rank is not None:
-        kwargs["lora_rank"] = args.rank
-    if args.epochs is not None:
-        kwargs["n_epochs"] = args.epochs
     if args.min_new_examples is not None:
         kwargs["min_new_examples"] = args.min_new_examples
-    kwargs["export_gguf"] = args.export_gguf
-    result = LocalLoRATrainer(**kwargs).train()
+    if backend == "mlx":
+        from hyperswarm.tuners.lora_mlx import MLXLoRATrainer
+        if args.rank is not None:
+            kwargs["num_layers"] = args.rank
+        if args.iters is not None:
+            kwargs["iters"] = args.iters
+        if args.export_gguf:
+            print(
+                "warning: --export-gguf is Unsloth-only (deferred for MLX). "
+                "Ignoring; the MLX adapter is loadable via mlx_lm.generate.",
+                file=sys.stderr,
+            )
+        trainer = MLXLoRATrainer(**kwargs)
+    else:  # unsloth
+        from hyperswarm.tuners.lora_local import LocalLoRATrainer
+        if args.rank is not None:
+            kwargs["lora_rank"] = args.rank
+        if args.epochs is not None:
+            kwargs["n_epochs"] = args.epochs
+        kwargs["export_gguf"] = args.export_gguf
+        trainer = LocalLoRATrainer(**kwargs)
+
+    result = trainer.train()
+    result["backend"] = backend
     if args.verbose:
         print(json.dumps(result, indent=2))
     else:
         st = result.get("status")
         if st == "completed":
             print(
-                f"agent={args.agent} status=completed adapter={result.get('adapter_path')} "
-                f"gguf={result.get('gguf_path') or '(skipped)'}"
+                f"agent={args.agent} backend={backend} status=completed "
+                f"adapter={result.get('adapter_path')} "
+                f"gguf={result.get('gguf_path') or '(none)'}"
             )
         else:
-            print(f"agent={args.agent} status={st} reason={result.get('reason', '')}")
-    return 0
+            print(
+                f"agent={args.agent} backend={backend} status={st} "
+                f"reason={result.get('reason', '')}"
+            )
+    return 0 if result.get("status") in ("completed", "skipped") else 1
 
 
 def cmd_tune_status(args: argparse.Namespace) -> int:
-    """Read the local-LoRA state and report the most recent adapter / GGUF path."""
-    from hyperswarm.tuners.lora_local import LocalLoRATrainer
+    """Read the local-LoRA state and report the most recent adapter / GGUF path.
+    Backend-agnostic — both lora_local.py and lora_mlx.py write the same
+    state-file shape, so a single status reader works for either."""
+    from hyperswarm.tuners.lora_mlx import MLXLoRATrainer
 
-    result = LocalLoRATrainer(agent=args.agent).status()
+    # Use the MLX class purely for its state-loading logic — both backends
+    # share the same on-disk schema so this works regardless of which one
+    # actually trained the most recent run. The `backend` field in state
+    # tells us which trainer wrote it.
+    result = MLXLoRATrainer(agent=args.agent).status()
     if args.verbose:
         print(json.dumps(result, indent=2))
     else:
         print(
-            f"agent={args.agent} last_run={result.get('last_run_status')} "
+            f"agent={args.agent} backend={result.get('backend')} "
+            f"last_run={result.get('last_run_status')} "
             f"current_adapter={result.get('current_adapter')} "
             f"current_gguf={result.get('current_gguf')}"
         )

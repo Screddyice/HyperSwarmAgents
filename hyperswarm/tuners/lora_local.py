@@ -63,6 +63,16 @@ def _new_run_id() -> str:
     return f"{datetime.date.today().isoformat()}-{uuid.uuid4().hex[:6]}"
 
 
+def is_cuda_available() -> bool:
+    """True iff a CUDA GPU is reachable (for the Unsloth path). Used by
+    backend auto-detection in the CLI."""
+    try:
+        import torch
+        return bool(torch.cuda.is_available())
+    except ImportError:
+        return False
+
+
 @dataclass
 class LocalLoRATrainer:
     agent: str
