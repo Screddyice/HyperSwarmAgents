@@ -376,6 +376,19 @@ def main() -> int:
     p_tune_collect.add_argument("--verbose", "-v", action="store_true")
     p_tune_collect.set_defaults(func=cmd_tune_collect)
 
+    p_tune_gguf = sub.add_parser(
+        "tune-export-gguf",
+        help="fuse the most-recent MLX LoRA adapter into the base model and export GGUF for Ollama loadability",
+    )
+    p_tune_gguf.add_argument("--agent", required=True)
+    p_tune_gguf.add_argument(
+        "--base-model",
+        default=None,
+        help="HF base model (default: read from finetune-state.json model_base)",
+    )
+    p_tune_gguf.add_argument("--verbose", "-v", action="store_true")
+    p_tune_gguf.set_defaults(func=cmd_tune_export_gguf)
+
     p_tune_ptp = sub.add_parser(
         "tune-pull-train-push",
         help="Mac-side helper: pull a server's corpus, train locally with MLX, push the adapter back",
@@ -533,6 +546,29 @@ def cmd_tune_collect(args: argparse.Namespace) -> int:
             f"total_examples={result.get('total_examples', 0)}"
         )
     return 0
+
+
+def cmd_tune_export_gguf(args: argparse.Namespace) -> int:
+    """Fuse the latest MLX LoRA adapter and export a GGUF file for Ollama."""
+    from hyperswarm.tuners.gguf_export import GGUFExporter
+
+    kwargs: dict = {"agent": args.agent}
+    if args.base_model:
+        kwargs["base_model"] = args.base_model
+    result = GGUFExporter(**kwargs).export()
+    if args.verbose:
+        print(json.dumps(result, indent=2))
+    else:
+        st = result.get("status")
+        if st == "completed":
+            mb = result.get("size_bytes", 0) / (1024 * 1024)
+            print(
+                f"agent={args.agent} status=completed gguf={result.get('gguf_path')} "
+                f"size={mb:.1f}MB"
+            )
+        else:
+            print(f"agent={args.agent} status={st} reason={result.get('reason', '')}")
+    return 0 if result.get("status") == "completed" else 1
 
 
 def cmd_tune_pull_train_push(args: argparse.Namespace) -> int:

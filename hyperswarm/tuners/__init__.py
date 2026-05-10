@@ -24,6 +24,10 @@ from hyperswarm.tuners.lora_mlx import (
     status_mlx,
     is_mlx_available,
 )
+from hyperswarm.tuners.gguf_export import (
+    GGUFExporter,
+    export_gguf,
+)
 
 __all__ = [
     "OpenClawCorpusCollector",
@@ -35,6 +39,8 @@ __all__ = [
     "train_mlx",
     "status_mlx",
     "is_mlx_available",
+    "GGUFExporter",
+    "export_gguf",
 ]
 
 # Backend history + selection:
