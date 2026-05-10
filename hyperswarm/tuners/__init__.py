@@ -13,16 +13,23 @@ from hyperswarm.tuners.openclaw_corpus import (
     OpenClawCorpusCollector,
     collect_corpus,
 )
-from hyperswarm.tuners.openai_finetune import (
-    OpenAIFineTuneClient,
-    trigger_finetune,
-    finetune_status,
+from hyperswarm.tuners.lora_local import (
+    LocalLoRATrainer,
+    train_local,
+    status_local,
 )
 
 __all__ = [
     "OpenClawCorpusCollector",
     "collect_corpus",
-    "OpenAIFineTuneClient",
-    "trigger_finetune",
-    "finetune_status",
+    "LocalLoRATrainer",
+    "train_local",
+    "status_local",
 ]
+
+# Backend history note:
+#   - Original implementation used OpenAI's hosted fine-tune API. Removed when
+#     OpenAI announced wind-down.
+#   - Replaced with self-hosted LoRA via Unsloth (Karpathy-style: own model,
+#     own data, own training). Runs on a CUDA host; corpus.jsonl format stays
+#     identical so the collector and watcher don't change.

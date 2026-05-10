@@ -6,8 +6,11 @@ went idle for N seconds" events, and fires:
 
   1. `hyperswarm reflect --agent <id>` (distill into curated memories)
   2. `hyperswarm tune-collect --agent <id>` (append to fine-tune corpus)
-  3. `hyperswarm tune-trigger --agent <id>` (idempotent — skips if threshold
-     not met or a previous job is still running)
+
+The watcher does NOT auto-fire `tune-train-local` because training requires
+a CUDA GPU which the watcher's host typically lacks. Training is a manual
+step on a separate GPU host that pulls the corpus, trains a LoRA adapter,
+and writes the adapter back.
 
 Why poll instead of inotify: poll keeps the dependency surface small
 (stdlib only), latency tolerance is high (idle detection is debounced
@@ -129,14 +132,19 @@ class OpenClawSessionWatcher:
         return r.returncode
 
     def _process(self, agent: str, sid: str) -> None:
-        """Fire reflect + tune-collect + tune-trigger for one ready (agent, sid)."""
+        """Fire reflect + tune-collect for one ready (agent, sid).
+
+        Note: actual LoRA training (`tune-train-local`) is NOT auto-fired by
+        the watcher because it requires a CUDA host that the watcher's host
+        likely isn't. Training is run manually on a GPU box that pulls the
+        corpus, trains, and writes the resulting adapter back. The watcher's
+        job stops at corpus collection.
+        """
         # Reflect (distill new turns into curated memories)
         self._run_cli("reflect", "--agent", agent)
         if self.enable_tune:
-            # Append to corpus
+            # Append user/assistant pairs to fine-tune corpus
             self._run_cli("tune-collect", "--agent", agent)
-            # Idempotent fine-tune trigger (no-op below threshold)
-            self._run_cli("tune-trigger", "--agent", agent)
         # Mark this session's mtime as processed so we don't re-trigger until
         # there's MORE activity past this point.
         key = (agent, sid)

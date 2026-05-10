@@ -376,24 +376,35 @@ def main() -> int:
     p_tune_collect.add_argument("--verbose", "-v", action="store_true")
     p_tune_collect.set_defaults(func=cmd_tune_collect)
 
-    p_tune_trigger = sub.add_parser(
-        "tune-trigger",
-        help="upload corpus and create an OpenAI fine-tune job (idempotent: skips if a previous job is still running or threshold not met)",
+    p_tune_train = sub.add_parser(
+        "tune-train-local",
+        help="LoRA fine-tune on the local GPU using Unsloth (Karpathy-style: own model, own data, own training)",
     )
-    p_tune_trigger.add_argument("--agent", required=True)
-    p_tune_trigger.add_argument("--base-model", default=None, help="base model id (default gpt-4o-mini-2024-07-18)")
-    p_tune_trigger.add_argument(
+    p_tune_train.add_argument("--agent", required=True)
+    p_tune_train.add_argument(
+        "--base-model",
+        default=None,
+        help="HF model id (default Qwen/Qwen3-8B, switchable to meta-llama/Meta-Llama-3.1-8B-Instruct etc.)",
+    )
+    p_tune_train.add_argument("--rank", type=int, default=None, help="LoRA rank (default 16)")
+    p_tune_train.add_argument("--epochs", type=int, default=None, help="training epochs (default 3)")
+    p_tune_train.add_argument(
         "--min-new-examples",
         type=int,
         default=None,
-        help="threshold: skip if fewer than this many new examples since last job (default 50)",
+        help="threshold: skip if fewer than this many new examples since last training (default 50)",
     )
-    p_tune_trigger.add_argument("--verbose", "-v", action="store_true")
-    p_tune_trigger.set_defaults(func=cmd_tune_trigger)
+    p_tune_train.add_argument(
+        "--export-gguf",
+        action="store_true",
+        help="after training, export the merged LoRA model to GGUF (so Ollama can load it directly)",
+    )
+    p_tune_train.add_argument("--verbose", "-v", action="store_true")
+    p_tune_train.set_defaults(func=cmd_tune_train_local)
 
     p_tune_status = sub.add_parser(
         "tune-status",
-        help="check the status of the most recent fine-tune job and capture the resulting model id when ready",
+        help="check the most recent local LoRA training run and report the current adapter / GGUF path",
     )
     p_tune_status.add_argument("--agent", required=True)
     p_tune_status.add_argument("--verbose", "-v", action="store_true")
@@ -464,38 +475,47 @@ def cmd_tune_collect(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_tune_trigger(args: argparse.Namespace) -> int:
-    """Upload corpus + create OpenAI fine-tune job. Idempotent."""
-    from hyperswarm.tuners.openai_finetune import OpenAIFineTuneClient
+def cmd_tune_train_local(args: argparse.Namespace) -> int:
+    """LoRA fine-tune on local GPU via Unsloth. Karpathy-style: own model, own data."""
+    from hyperswarm.tuners.lora_local import LocalLoRATrainer
 
     kwargs: dict = {"agent": args.agent}
     if args.base_model:
         kwargs["base_model"] = args.base_model
+    if args.rank is not None:
+        kwargs["lora_rank"] = args.rank
+    if args.epochs is not None:
+        kwargs["n_epochs"] = args.epochs
     if args.min_new_examples is not None:
         kwargs["min_new_examples"] = args.min_new_examples
-    result = OpenAIFineTuneClient(**kwargs).trigger()
+    kwargs["export_gguf"] = args.export_gguf
+    result = LocalLoRATrainer(**kwargs).train()
     if args.verbose:
         print(json.dumps(result, indent=2))
     else:
         st = result.get("status")
-        if st == "started":
-            print(f"agent={args.agent} job_id={result['job_id']} examples={result['examples']}")
+        if st == "completed":
+            print(
+                f"agent={args.agent} status=completed adapter={result.get('adapter_path')} "
+                f"gguf={result.get('gguf_path') or '(skipped)'}"
+            )
         else:
             print(f"agent={args.agent} status={st} reason={result.get('reason', '')}")
     return 0
 
 
 def cmd_tune_status(args: argparse.Namespace) -> int:
-    """Refresh fine-tune job status, capture model id if succeeded."""
-    from hyperswarm.tuners.openai_finetune import OpenAIFineTuneClient
+    """Read the local-LoRA state and report the most recent adapter / GGUF path."""
+    from hyperswarm.tuners.lora_local import LocalLoRATrainer
 
-    result = OpenAIFineTuneClient(agent=args.agent).status()
+    result = LocalLoRATrainer(agent=args.agent).status()
     if args.verbose:
         print(json.dumps(result, indent=2))
     else:
         print(
-            f"agent={args.agent} job_status={result.get('status')} "
-            f"current_model={result.get('current_model')}"
+            f"agent={args.agent} last_run={result.get('last_run_status')} "
+            f"current_adapter={result.get('current_adapter')} "
+            f"current_gguf={result.get('current_gguf')}"
         )
     return 0
 
