@@ -14,9 +14,11 @@ import pytest
 from hyperswarm.reflectors.openclaw_session import (
     OpenClawSessionReflector,
     _inject_provenance,
+    _semantic_hash,
     extract_turn,
     read_new_turns,
     split_memory_blocks,
+    write_memory_block,
 )
 
 
@@ -169,6 +171,77 @@ def test_split_memory_blocks_empty_string():
 def test_split_memory_blocks_malformed_no_frontmatter():
     # No leading `---` → reject everything (safer than emitting garbage)
     assert split_memory_blocks("just some text without frontmatter") == []
+
+
+# --------------------------------------------------------- semantic dedup
+
+
+def test_semantic_hash_stable_for_same_name_description():
+    a = "---\nname: Shawn prefers plain text\ndescription: never HTML\ntype: feedback\n---\nbody A\n"
+    b = "---\nname: Shawn prefers plain text\ndescription: never HTML\ntype: feedback\n---\ncompletely different body B\n"
+    assert _semantic_hash(a) == _semantic_hash(b), "different bodies but same name+desc → same hash"
+
+
+def test_semantic_hash_differs_when_name_or_description_differs():
+    a = "---\nname: A thing\ndescription: hook\ntype: user\n---\nbody\n"
+    b = "---\nname: A different thing\ndescription: hook\ntype: user\n---\nbody\n"
+    c = "---\nname: A thing\ndescription: different hook\ntype: user\n---\nbody\n"
+    assert _semantic_hash(a) != _semantic_hash(b)
+    assert _semantic_hash(a) != _semantic_hash(c)
+
+
+def test_semantic_hash_case_insensitive():
+    a = "---\nname: meeting prep workflow\ndescription: how to run it\ntype: user\n---\nbody\n"
+    b = "---\nname: Meeting Prep Workflow\ndescription: How to run it\ntype: user\n---\nbody\n"
+    assert _semantic_hash(a) == _semantic_hash(b)
+
+
+def test_write_memory_block_skips_duplicate_by_name_description(tmp_path):
+    block = "---\nname: meeting prep workflow\ndescription: how to run it\ntype: user\n---\nworkflow body\n"
+    p1 = write_memory_block(
+        block=block,
+        agent="clawdbot",
+        host="neb-server",
+        session_id="aaa11111-1111-1111",
+        timestamp="2026-05-09T00:00:00Z",
+        output_dir=tmp_path,
+    )
+    assert p1 is not None and p1.exists()
+
+    # Second write with same name+description from a DIFFERENT session: should skip
+    block2 = "---\nname: meeting prep workflow\ndescription: how to run it\ntype: user\n---\nslightly different body\n"
+    p2 = write_memory_block(
+        block=block2,
+        agent="clawdbot",
+        host="neb-server",
+        session_id="bbb22222-2222-2222",
+        timestamp="2026-05-09T01:00:00Z",
+        output_dir=tmp_path,
+    )
+    assert p2 is None
+
+    # Only one .md file in dir
+    md_files = list(tmp_path.glob("*.md"))
+    assert len(md_files) == 1
+
+
+def test_write_memory_block_writes_when_name_or_description_differs(tmp_path):
+    write_memory_block(
+        block="---\nname: A\ndescription: hook A\ntype: user\n---\nbody\n",
+        agent="x", host="h", session_id="s1", timestamp="t",
+        output_dir=tmp_path,
+    )
+    write_memory_block(
+        block="---\nname: B\ndescription: hook A\ntype: user\n---\nbody\n",
+        agent="x", host="h", session_id="s2", timestamp="t",
+        output_dir=tmp_path,
+    )
+    write_memory_block(
+        block="---\nname: A\ndescription: hook B\ntype: user\n---\nbody\n",
+        agent="x", host="h", session_id="s3", timestamp="t",
+        output_dir=tmp_path,
+    )
+    assert len(list(tmp_path.glob("*.md"))) == 3
 
 
 # ------------------------------------------------------- provenance injection

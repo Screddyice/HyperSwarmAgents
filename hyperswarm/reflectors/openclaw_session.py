@@ -53,6 +53,17 @@ OUTPUT ONLY new memories worth keeping. Skip:
 - Things obvious from the current code, repos, or environment state.
 - One-off task details, ephemeral state, or in-flight work.
 - Anything already documented in known memory.
+- **Recurring scheduled-workflow descriptions.** If the session is a cron/scheduled
+  agent run executing the same workflow that's run dozens of times before
+  (meeting prep, daily digest, post-meeting recap, status sweep, health check,
+  etc.), DO NOT emit a memory describing the workflow. The workflow itself
+  lives in the skill/code; it's not a learning. Only emit a memory if Shawn
+  said something NEW about the workflow during this session (e.g. "from now
+  on, also include X in the brief" — that's feedback worth keeping).
+- **Anything that would be the same answer if asked again next week.** A memory
+  that captures "how to run the meeting prep workflow" doesn't get smarter
+  with repetition; it just clogs the index. Recurring task definitions belong
+  in code or docs, not in distilled-memory form.
 
 Memory types and when to use each:
 - user: facts about Shawn's role, preferences, knowledge. Tailor future behavior.
@@ -223,6 +234,22 @@ def split_memory_blocks(llm_output: str) -> list[str]:
     return blocks
 
 
+def _semantic_hash(block: str) -> str:
+    """Hash (name, description) only — for dedup across sessions/dates.
+
+    Two memories with the same name+description should not BOTH live in the
+    server-learned dir, even if they were generated weeks apart. We use a
+    short stable hash so a glob over `*_<hash>.md` finds the one canonical
+    file regardless of date prefix.
+    """
+    m = re.search(r"^name:\s*(.+?)\s*$", block, flags=re.MULTILINE)
+    name = (m.group(1) if m else "").strip().lower()
+    m = re.search(r"^description:\s*(.+?)\s*$", block, flags=re.MULTILINE)
+    desc = (m.group(1) if m else "").strip().lower()
+    key = f"{name}::{desc}"
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
+
+
 def write_memory_block(
     *,
     block: str,
@@ -234,7 +261,12 @@ def write_memory_block(
 ) -> Path | None:
     """Write one memory block to disk, augmenting frontmatter with provenance.
 
-    Returns the written path, or None if a duplicate (by content hash) already exists.
+    Dedup: filenames carry a hash of (name, description) only. If any existing
+    file in output_dir ends in `_<hash>.md`, the new memory is treated as a
+    duplicate and skipped. This prevents "meeting prep workflow" reflections
+    from compounding session-after-session.
+
+    Returns the written path, or None if a duplicate already exists.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     # Inject provenance into frontmatter (idempotent — only if missing)
@@ -245,10 +277,14 @@ def write_memory_block(
         session_id=session_id,
         timestamp=timestamp,
     )
-    h = hashlib.sha1(augmented.encode("utf-8")).hexdigest()[:10]
+    name_hash = _semantic_hash(augmented)
+    # Skip if any existing file with this semantic hash is present (regardless
+    # of date / session prefix). This is the dedup gate.
+    for existing in output_dir.glob(f"*_{name_hash}.md"):
+        return None
     date = datetime.date.today().isoformat()
     short = (session_id or "unknown")[:8]
-    fpath = output_dir / f"{date}_{short}_{h}.md"
+    fpath = output_dir / f"{date}_{short}_{name_hash}.md"
     if fpath.exists():
         return None
     fpath.write_text(augmented, encoding="utf-8")
