@@ -18,6 +18,12 @@ from hyperswarm.tuners.lora_local import (
     train_local,
     status_local,
 )
+from hyperswarm.tuners.lora_mlx import (
+    MLXLoRATrainer,
+    train_mlx,
+    status_mlx,
+    is_mlx_available,
+)
 
 __all__ = [
     "OpenClawCorpusCollector",
@@ -25,11 +31,18 @@ __all__ = [
     "LocalLoRATrainer",
     "train_local",
     "status_local",
+    "MLXLoRATrainer",
+    "train_mlx",
+    "status_mlx",
+    "is_mlx_available",
 ]
 
-# Backend history note:
-#   - Original implementation used OpenAI's hosted fine-tune API. Removed when
-#     OpenAI announced wind-down.
-#   - Replaced with self-hosted LoRA via Unsloth (Karpathy-style: own model,
-#     own data, own training). Runs on a CUDA host; corpus.jsonl format stays
-#     identical so the collector and watcher don't change.
+# Backend history + selection:
+#   1. OpenAI hosted fine-tune (removed — vendor sunset).
+#   2. Unsloth on Linux+CUDA (`lora_local.py`) — secondary, kicks in on GPU
+#      servers when the primary Mac is offline / not reachable.
+#   3. MLX on macOS arm64 (`lora_mlx.py`) — primary. Free, private, fast on
+#      Apple Silicon Max-tier hardware. Auto-selected by the CLI on macOS.
+# corpus.jsonl format is identical across backends; the only thing that
+# changes per-backend is which trainer module the CLI dispatches to and the
+# resulting adapter format on disk (MLX safetensors vs Unsloth-saved adapter).
