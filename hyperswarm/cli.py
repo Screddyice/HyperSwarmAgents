@@ -446,6 +446,30 @@ def main() -> int:
     p_tune_status.add_argument("--verbose", "-v", action="store_true")
     p_tune_status.set_defaults(func=cmd_tune_status)
 
+    p_reflect_dedupe = sub.add_parser(
+        "reflect-dedupe",
+        help="scan a server-learned dir, group memories by (name, description), keep one per group",
+    )
+    p_reflect_dedupe.add_argument("--agent", required=True)
+    p_reflect_dedupe.add_argument(
+        "--output-base",
+        default=None,
+        help="server-learned base dir (default: ~/.openclaw/claude-code-history/projects/-Users-screddy-projects/memory/server-learned)",
+    )
+    p_reflect_dedupe.add_argument(
+        "--keep",
+        choices=("oldest", "newest"),
+        default="oldest",
+        help="which file to keep when duplicates are found (default oldest by mtime)",
+    )
+    p_reflect_dedupe.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report what would be deleted without actually deleting",
+    )
+    p_reflect_dedupe.add_argument("--verbose", "-v", action="store_true")
+    p_reflect_dedupe.set_defaults(func=cmd_reflect_dedupe)
+
     p_reflect = sub.add_parser(
         "reflect",
         help="distill recent agent sessions into curated memory files",
@@ -699,6 +723,76 @@ def cmd_tune_status(args: argparse.Namespace) -> int:
             f"current_adapter={result.get('current_adapter')} "
             f"current_gguf={result.get('current_gguf')}"
         )
+    return 0
+
+
+def cmd_reflect_dedupe(args: argparse.Namespace) -> int:
+    """One-shot cleanup: dedup server-learned memories by (name, description).
+    Used to clean up the historical flood from before the write-time dedup gate
+    landed."""
+    import re
+    from pathlib import Path
+
+    base_default = (
+        "~/.openclaw/claude-code-history/projects/-Users-screddy-projects/"
+        "memory/server-learned"
+    )
+    base = Path(os.path.expanduser(args.output_base or base_default))
+    agent_dir = base / args.agent
+    if not agent_dir.exists():
+        print(f"reflect-dedupe: no dir at {agent_dir}", file=sys.stderr)
+        return 1
+
+    # Group files by (name, description) extracted from frontmatter
+    groups: dict[tuple[str, str], list[Path]] = {}
+    skipped_unparseable = 0
+    for f in sorted(agent_dir.glob("*.md")):
+        try:
+            text = f.read_text(encoding="utf-8")
+        except Exception:
+            skipped_unparseable += 1
+            continue
+        m_name = re.search(r"^name:\s*(.+?)\s*$", text, flags=re.MULTILINE)
+        m_desc = re.search(r"^description:\s*(.+?)\s*$", text, flags=re.MULTILINE)
+        if not m_name:
+            skipped_unparseable += 1
+            continue
+        key = (m_name.group(1).strip().lower(), (m_desc.group(1).strip().lower() if m_desc else ""))
+        groups.setdefault(key, []).append(f)
+
+    duplicates_to_delete: list[Path] = []
+    for key, files in groups.items():
+        if len(files) <= 1:
+            continue
+        files.sort(key=lambda p: p.stat().st_mtime)
+        if args.keep == "oldest":
+            keep = files[0]
+            delete_set = files[1:]
+        else:
+            keep = files[-1]
+            delete_set = files[:-1]
+        duplicates_to_delete.extend(delete_set)
+        if args.verbose:
+            print(f"  group [{key[0][:60]}] {len(files)} files; keep {keep.name}", file=sys.stderr)
+
+    print(
+        f"agent={args.agent} files={sum(len(v) for v in groups.values())} "
+        f"groups={len(groups)} duplicates_to_delete={len(duplicates_to_delete)} "
+        f"unparseable_skipped={skipped_unparseable}"
+    )
+
+    if args.dry_run:
+        print("(dry-run: no files deleted)")
+        return 0
+
+    deleted = 0
+    for f in duplicates_to_delete:
+        try:
+            f.unlink()
+            deleted += 1
+        except Exception as e:
+            print(f"failed to delete {f}: {e}", file=sys.stderr)
+    print(f"deleted {deleted} duplicate files")
     return 0
 
 
