@@ -197,6 +197,48 @@ def cmd_install(args: argparse.Namespace) -> int:
     return rc
 
 
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    cfg = _load_config(args.config)
+
+    # Like install, but removes the hook/wrapper. With an explicit --runtime
+    # this works even when the source is disabled/commented-out in config.toml
+    # (we still need to REMOVE a previously-installed per-turn hook).
+    targets = []
+    if args.runtime:
+        if args.runtime not in SOURCE_REGISTRY:
+            print(f"unknown runtime {args.runtime!r}; known: {sorted(SOURCE_REGISTRY)}", file=sys.stderr)
+            return 1
+        source_cfg = _find_source_config(cfg, args.runtime) or {}
+        targets.append((args.runtime, source_cfg))
+    else:
+        seen = set()
+        for s in cfg.get("source") or []:
+            t = s.get("type")
+            if t in SOURCE_REGISTRY and t not in seen:
+                targets.append((t, s))
+                seen.add(t)
+
+    if not targets:
+        print("no sources to uninstall — pass --runtime X or add [[source]] blocks to config.toml")
+        return 1
+
+    rc = 0
+    for name, source_cfg in targets:
+        Source = SOURCE_REGISTRY[name]
+        source = Source(source_cfg)
+        fn = getattr(source, "uninstall", None)
+        if not callable(fn):
+            print(f"{name}: no uninstall() — skipping")
+            continue
+        try:
+            fn()
+            print(f"uninstalled {name}")
+        except Exception as e:
+            print(f"uninstall failed for {name}: {e}", file=sys.stderr)
+            rc = 1
+    return rc
+
+
 # ----------------------------------------------------------------- push/pull
 def _build_syncs(cfg: dict) -> list:
     """Instantiate every [[sync]] block whose type is in SYNC_REGISTRY."""
@@ -333,6 +375,14 @@ def main() -> int:
     p_install.add_argument("--runtime", default=None, help="install just this source (defaults to all in config)")
     p_install.set_defaults(func=cmd_install)
 
+    p_uninstall = sub.add_parser(
+        "uninstall",
+        help="remove hooks/wrappers for a source (works on disabled/commented-out sources too)",
+    )
+    _add_config_arg(p_uninstall)
+    p_uninstall.add_argument("--runtime", default=None, help="uninstall just this source")
+    p_uninstall.set_defaults(func=cmd_uninstall)
+
     p_push = sub.add_parser("push", help="run push() on every configured Sync")
     _add_config_arg(p_push)
     p_push.add_argument("--verbose", "-v", action="store_true")
@@ -375,6 +425,32 @@ def main() -> int:
     p_tune_collect.add_argument("--host", default=None)
     p_tune_collect.add_argument("--verbose", "-v", action="store_true")
     p_tune_collect.set_defaults(func=cmd_tune_collect)
+
+    p_tune_collect_jarvis = sub.add_parser(
+        "tune-collect-jarvis",
+        help="cross-node Jarvis corpus merge: rsync session jsonls from Mac + neb + cliqk + trc, build one corpus.jsonl",
+    )
+    p_tune_collect_jarvis.add_argument(
+        "--agent",
+        default="jarvis",
+        help="agent id (default: jarvis). The merger is agent-agnostic; override only if you have another cross-node persona.",
+    )
+    p_tune_collect_jarvis.add_argument(
+        "--source",
+        action="append",
+        default=None,
+        help=(
+            "source spec 'host=<label>,ssh=<alias>,path=<remote_path>' (or 'local' for the alias). "
+            "Repeatable. If omitted, the standard Mac+neb+cliqk+trc defaults are used."
+        ),
+    )
+    p_tune_collect_jarvis.add_argument(
+        "--no-pull",
+        action="store_true",
+        help="skip rsync; only collect from existing staged dirs (debug aid)",
+    )
+    p_tune_collect_jarvis.add_argument("--verbose", "-v", action="store_true")
+    p_tune_collect_jarvis.set_defaults(func=cmd_tune_collect_jarvis)
 
     p_tune_gguf = sub.add_parser(
         "tune-export-gguf",
@@ -544,6 +620,54 @@ def cmd_tune_collect(args: argparse.Namespace) -> int:
         print(
             f"agent={result['agent']} appended={result.get('appended', 0)} "
             f"total_examples={result.get('total_examples', 0)}"
+        )
+    return 0
+
+
+def _parse_source_spec(spec: str):
+    """Parse a --source spec like 'host=mac,ssh=local,path=/x/y' into a CorpusSource."""
+    from hyperswarm.tuners.jarvis_merge import CorpusSource
+
+    parts = dict()
+    for kv in spec.split(","):
+        if "=" not in kv:
+            raise SystemExit(f"--source: bad fragment {kv!r} in {spec!r}; expected key=value")
+        k, v = kv.split("=", 1)
+        parts[k.strip()] = v.strip()
+    if "host" not in parts or "path" not in parts:
+        raise SystemExit(f"--source {spec!r}: 'host' and 'path' are required")
+    ssh = parts.get("ssh")
+    if ssh in (None, "", "local"):
+        ssh = None
+    return CorpusSource(host=parts["host"], remote_path=parts["path"], ssh_alias=ssh)
+
+
+def cmd_tune_collect_jarvis(args: argparse.Namespace) -> int:
+    """Cross-node Jarvis corpus merge — rsync session jsonls from every node
+    Shawn talks to, build one unified corpus.jsonl that the Mac trainer can
+    pick up via the standard tune-train-local path."""
+    from hyperswarm.tuners.jarvis_merge import JarvisCorpusMerger, default_sources
+
+    sources = (
+        [_parse_source_spec(s) for s in args.source]
+        if args.source
+        else default_sources()
+    )
+    merger = JarvisCorpusMerger(agent=args.agent, sources=sources)
+    pull = {"skipped": True} if args.no_pull else merger.pull_remotes()
+    collect = merger.collect()
+    out = {"pull": pull, "collect": collect}
+    if args.verbose:
+        print(json.dumps(out, indent=2))
+    else:
+        c = collect
+        per = c.get("per_host", {})
+        breakdown = " ".join(
+            f"{h}={v.get('appended', 0)}" for h, v in per.items()
+        )
+        print(
+            f"agent={c['agent']} appended={c['appended']} "
+            f"total_examples={c['total_examples']} [{breakdown}]"
         )
     return 0
 

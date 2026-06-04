@@ -133,7 +133,11 @@ def _parse_gate_json(raw: str) -> dict:
     if not isinstance(data, dict):
         return not_qual
 
-    qualifies = bool(data.get("qualifies"))
+    # Strict: only a real JSON boolean true (or int 1) qualifies. Do NOT use
+    # bool(), which truthiness-coerces a stringized "false"/"no"/"0" to True and
+    # would wrongly emit a corpus entry for a routine session. Default-deny.
+    _q = data.get("qualifies")
+    qualifies = _q is True or _q == 1
     trigger = data.get("trigger")
     if not qualifies or trigger not in _VALID_TRIGGERS:
         # Either non-qualifying or an invalid/missing trigger → treat as not qualifying.
