@@ -198,13 +198,28 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 
 # ----------------------------------------------------------------- push/pull
-def _build_syncs(cfg: dict) -> list:
-    """Instantiate every [[sync]] block whose type is in SYNC_REGISTRY."""
+def _build_syncs(cfg: dict, direction: str | None = None) -> list:
+    """Instantiate every [[sync]] block whose type is in SYNC_REGISTRY.
+
+    When ``direction`` is given ("push" or "pull"), blocks that explicitly
+    declare the opposite direction are skipped — so ``hyperswarm push`` runs
+    only push blocks and ``hyperswarm pull`` runs only pull blocks. A block
+    that omits ``direction`` runs for both (legacy behaviour).
+
+    Without this filter a ``pull`` would also run push blocks: each push
+    block's remote ``to_path`` would be mkdir'd locally and its local
+    ``from_path`` read as if it were remote — creating stray local dirs and
+    failing with rsync "No such file or directory".
+    """
     out = []
     for s in cfg.get("sync") or []:
         t = s.get("type")
-        if t in SYNC_REGISTRY:
-            out.append((t, SYNC_REGISTRY[t](s)))
+        if t not in SYNC_REGISTRY:
+            continue
+        d = s.get("direction")
+        if direction is not None and d is not None and d != direction:
+            continue
+        out.append((t, SYNC_REGISTRY[t](s)))
     return out
 
 
@@ -214,7 +229,7 @@ def cmd_push(args: argparse.Namespace) -> int:
     gate excludes us, so cron can run this everywhere safely.
     """
     cfg = _load_config(args.config)
-    syncs = _build_syncs(cfg)
+    syncs = _build_syncs(cfg, "push")
     if not syncs:
         if args.verbose:
             print("no syncs configured")
@@ -233,7 +248,7 @@ def cmd_push(args: argparse.Namespace) -> int:
 
 def cmd_pull(args: argparse.Namespace) -> int:
     cfg = _load_config(args.config)
-    syncs = _build_syncs(cfg)
+    syncs = _build_syncs(cfg, "pull")
     if not syncs:
         if args.verbose:
             print("no syncs configured")
