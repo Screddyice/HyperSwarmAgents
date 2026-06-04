@@ -16,15 +16,30 @@ from pathlib import Path
 from typing import Iterable
 
 from hyperswarm.core.entry import Entry
+from hyperswarm.core.host import get_host_identity
 from hyperswarm.core.store import Store
 
 
 class MarkdownStore(Store):
     def __init__(self, config: dict | None = None) -> None:
         super().__init__(config)
-        root = self.config.get("path", "~/HyperSwarm")
+        root = self.config.get("path") or self._default_root()
         self.root = Path(os.path.expanduser(root))
         self.entries_dir = self.root / "entries"
+
+    @staticmethod
+    def _default_root() -> str:
+        """Store root when no explicit ``path`` is configured.
+
+        The Mac (``shawn-mac``) keeps its store under the projects-root
+        convention at ``~/projects/HyperSwarm``; every other host keeps the
+        historical ``~/HyperSwarm``. Without this, a config-less instantiation
+        on the Mac re-creates an empty ``~/HyperSwarm`` outside ``~/projects``
+        (e.g. when the periodic ``hyperswarm pull`` touches the store).
+        """
+        if get_host_identity() == "shawn-mac":
+            return "~/projects/HyperSwarm"
+        return "~/HyperSwarm"
 
     def write(self, entry: Entry) -> str:
         ts = entry.timestamp

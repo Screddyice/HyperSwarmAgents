@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import datetime as _dt
+import os
+from pathlib import Path
 
 from hyperswarm.core.entry import Entry
 from hyperswarm.stores.markdown import MarkdownStore
@@ -52,3 +54,24 @@ def test_list_since_returns_empty_when_root_missing(tmp_path):
     store = MarkdownStore({"path": str(tmp_path / "does-not-exist")})
     results = list(store.list_since(_dt.datetime.min.replace(tzinfo=_dt.timezone.utc)))
     assert results == []
+
+
+def test_default_root_is_projects_on_mac(monkeypatch):
+    """With no explicit path, the Mac stores under the projects-root convention."""
+    monkeypatch.setenv("HYPERSWARM_HOST_IDENTITY", "shawn-mac")
+    store = MarkdownStore({})
+    assert store.root == Path(os.path.expanduser("~/projects/HyperSwarm"))
+
+
+def test_default_root_is_home_hyperswarm_on_servers(monkeypatch):
+    """Every non-Mac host keeps the historical ~/HyperSwarm default."""
+    monkeypatch.setenv("HYPERSWARM_HOST_IDENTITY", "neb-server")
+    store = MarkdownStore({})
+    assert store.root == Path(os.path.expanduser("~/HyperSwarm"))
+
+
+def test_explicit_path_overrides_host_default(monkeypatch, tmp_path):
+    """An explicit `path` always wins, regardless of host identity."""
+    monkeypatch.setenv("HYPERSWARM_HOST_IDENTITY", "shawn-mac")
+    store = MarkdownStore({"path": str(tmp_path)})
+    assert store.root == tmp_path
