@@ -3,6 +3,6 @@
 Watchers replace the cron model: instead of "run every 6h regardless,"
 they fire ONLY when an agent actually finishes a session worth processing.
 """
-from hyperswarm.watchers.openclaw_sessions import OpenClawSessionWatcher, run_watcher
+# retired 2026-06-08: openclaw decommissioned, replaced by Hermes memory provider
 
-__all__ = ["OpenClawSessionWatcher", "run_watcher"]
+__all__: list[str] = []

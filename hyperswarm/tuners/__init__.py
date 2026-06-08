@@ -9,10 +9,7 @@ personalization-flavored queries to it.
 Pattern reference: Karpathy's "weights vs context" — Sources and Reflectors
 update context (fast learning); Tuners update weights (slow learning).
 """
-from hyperswarm.tuners.openclaw_corpus import (
-    OpenClawCorpusCollector,
-    collect_corpus,
-)
+# retired 2026-06-08: openclaw decommissioned, replaced by Hermes memory provider
 from hyperswarm.tuners.lora_local import (
     LocalLoRATrainer,
     train_local,
@@ -28,10 +25,14 @@ from hyperswarm.tuners.gguf_export import (
     GGUFExporter,
     export_gguf,
 )
+from hyperswarm.tuners.jarvis_merge import (
+    CorpusSource,
+    JarvisCorpusMerger,
+    default_sources as default_jarvis_sources,
+    merge_jarvis_corpus,
+)
 
 __all__ = [
-    "OpenClawCorpusCollector",
-    "collect_corpus",
     "LocalLoRATrainer",
     "train_local",
     "status_local",
@@ -41,6 +42,10 @@ __all__ = [
     "is_mlx_available",
     "GGUFExporter",
     "export_gguf",
+    "CorpusSource",
+    "JarvisCorpusMerger",
+    "default_jarvis_sources",
+    "merge_jarvis_corpus",
 ]
 
 # Backend history + selection:
