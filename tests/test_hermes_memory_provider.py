@@ -186,3 +186,31 @@ def test_register_entrypoint_calls_register_memory_provider():
     register(_Ctx())
     assert isinstance(captured.get("provider"), HyperSwarmMemoryProvider)
     assert captured["provider"].name == "hyperswarm"
+
+
+def test_register_module_has_discovery_markers():
+    """Hermes' discover_memory_providers() treats a dir as a provider iff its
+    source references register_memory_provider / MemoryProvider."""
+    import inspect
+
+    import hyperswarm.integrations.hermes as pkg
+
+    src = inspect.getsource(pkg)
+    assert "register_memory_provider" in src
+    assert "MemoryProvider" in src
+
+
+def test_register_accepts_provider_kwarg_path():
+    """Some Hermes builds pass the already-built provider in via kwargs;
+    register must not double-instantiate when one is supplied."""
+    from hyperswarm.integrations.hermes import register
+
+    captured = {}
+
+    class _Ctx:
+        def register_memory_provider(self, provider):
+            captured["provider"] = provider
+
+    sentinel = HyperSwarmMemoryProvider()
+    register(_Ctx(), provider=sentinel)
+    assert captured["provider"] is sentinel

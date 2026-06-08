@@ -13,10 +13,21 @@ from .provider import HyperSwarmMemoryProvider
 __all__ = ["HyperSwarmMemoryProvider", "register"]
 
 
-def register(ctx) -> None:
+def register(ctx, provider: "HyperSwarmMemoryProvider | None" = None, **kwargs) -> None:
     """Hermes plugin contract: register the HyperSwarm memory provider.
 
-    The exact entrypoint signature is verified against Hermes'
-    ``plugins/memory/__init__.py`` at deploy time (Task 5/7).
+    Hermes loads this plugin and calls ``register(ctx)``; the provider then
+    registers itself via ``ctx.register_memory_provider(...)`` — mirrors
+    ``plugins/memory/retaindb/__init__.py``. Only ONE external provider is
+    allowed.
+
+    ``provider`` is an optional already-built instance (some Hermes builds
+    construct the provider and pass it in); when omitted we instantiate the
+    default. Extra ``**kwargs`` are accepted/ignored so the entrypoint tolerates
+    Hermes passing context kwargs without breaking. The exact signature is
+    re-verified against Hermes' ``plugins/memory/__init__.py`` at deploy time
+    (Task 5 Step 2 / Task 7).
     """
-    ctx.register_memory_provider(HyperSwarmMemoryProvider())
+    if provider is None:
+        provider = HyperSwarmMemoryProvider()
+    ctx.register_memory_provider(provider)
