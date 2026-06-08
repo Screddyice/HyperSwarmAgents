@@ -107,3 +107,82 @@ def test_session_end_no_buffer_writes_nothing(tmp_path):
     p.initialize("s1", org="TMN")
     p.on_session_end([])
     assert sum(1 for _ in p._store.list_since(_epoch())) == 0
+
+
+# --- Task 4: explicit recall tool (get_tool_schemas / handle_tool_call) -----
+
+def test_search_tool_schema_exposed(tmp_path):
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+    schemas = p.get_tool_schemas()
+    assert any(s["name"] == "hyperswarm_search" for s in schemas)
+    schema = next(s for s in schemas if s["name"] == "hyperswarm_search")
+    # The description MUST route deep/personal/health/broad queries to the
+    # corpus-mcp brain, keeping HyperSwarm for working memory.
+    desc = schema["description"].lower()
+    assert "corpus" in desc
+    assert "working memory" in desc
+    for kw in ("deep", "personal", "health", "broad"):
+        assert kw in desc, f"description must route {kw!r} queries to corpus"
+    assert schema["parameters"]["required"] == ["query"]
+
+
+def test_search_tool_returns_org_filtered_hits(tmp_path):
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+    p.initialize("s", org="TMN")
+    _seed(p._store, "alpha pipeline note", "TMN")
+    import json
+
+    res = json.loads(p.handle_tool_call("hyperswarm_search", {"query": "pipeline"}))
+    assert any("alpha" in r for r in res["results"])
+
+
+def test_search_tool_org_isolation(tmp_path):
+    """The tool path must enforce the same org boundary as prefetch()."""
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+    p.initialize("s", org="TMN")
+    _seed(p._store, "TMN alpha keyword token", "TMN")
+    _seed(p._store, "Cliqk beta keyword token", "Cliqk")
+    import json
+
+    res = json.loads(p.handle_tool_call("hyperswarm_search", {"query": "keyword"}))
+    joined = " ".join(res["results"])
+    assert "alpha" in joined
+    assert "beta" not in joined  # Cliqk entry NEVER leaks via the tool
+
+
+def test_search_tool_no_hits_empty_results(tmp_path):
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+    p.initialize("s", org="TMN")
+    import json
+
+    res = json.loads(p.handle_tool_call("hyperswarm_search", {"query": "nothingmatches"}))
+    assert res["results"] == []
+
+
+def test_unknown_tool_raises(tmp_path):
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+    import pytest
+
+    with pytest.raises(NotImplementedError):
+        p.handle_tool_call("not_a_tool", {})
+
+
+# --- Task 5: registration entrypoint ---------------------------------------
+
+def test_register_entrypoint_calls_register_memory_provider():
+    from hyperswarm.integrations.hermes import register
+
+    captured = {}
+
+    class _Ctx:
+        def register_memory_provider(self, provider):
+            captured["provider"] = provider
+
+    register(_Ctx())
+    assert isinstance(captured.get("provider"), HyperSwarmMemoryProvider)
+    assert captured["provider"].name == "hyperswarm"

@@ -66,7 +66,34 @@ class HyperSwarmMemoryProvider:  # duck-types Hermes MemoryProvider ABC
         self._buffer = []
 
     def get_tool_schemas(self):
-        return []
+        # One explicit recall tool. The description deliberately routes
+        # deep/personal/health/broad queries to the corpus-mcp brain so the
+        # agent keeps HyperSwarm for working memory only.
+        return [
+            {
+                "name": "hyperswarm_search",
+                "description": (
+                    "Search Shawn's HyperSwarm working memory (org-scoped, "
+                    "current-context). Use this for recent working memory: what "
+                    "was last left off on, recent decisions, session learnings, "
+                    "and short-term project state. Do NOT use this for deep, "
+                    "personal, health, or broad knowledge queries — for those, "
+                    "use the corpus-mcp brain tool instead (it holds the deep, "
+                    "org-isolated long-term knowledge). Keep HyperSwarm for "
+                    "working memory; route depth to corpus."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Keywords to search working memory for.",
+                        }
+                    },
+                    "required": ["query"],
+                },
+            }
+        ]
 
     def shutdown(self) -> None:
         self._buffer = []
@@ -159,4 +186,17 @@ class HyperSwarmMemoryProvider:  # duck-types Hermes MemoryProvider ABC
         self._buffer = []
 
     def handle_tool_call(self, tool_name, args, **kwargs):
-        raise NotImplementedError(tool_name)
+        import json
+
+        if tool_name != "hyperswarm_search":
+            raise NotImplementedError(tool_name)
+        args = args or {}
+        query = args.get("query", "")
+        # Reuse the org-isolated recall path so the tool inherits the same
+        # security boundary as prefetch(). prefetch() returns a memory-context
+        # block whose hit lines are prefixed with "- "; parse those back out.
+        block = self.prefetch(query, org=self._org)
+        results = [
+            line[2:] for line in block.splitlines() if line.startswith("- ")
+        ]
+        return json.dumps({"results": results})
