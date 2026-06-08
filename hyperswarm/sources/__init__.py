@@ -2,8 +2,8 @@ from hyperswarm.sources.claude_code import ClaudeCodeSource
 from hyperswarm.sources.claude_harness import ClaudeHarnessSource
 from hyperswarm.sources.claude_mem_session import ClaudeMemSessionSource
 from hyperswarm.sources.codex import CodexSource
-from hyperswarm.sources.openclaw import OpenClawSource
-from hyperswarm.sources.openclaw_runs import OpenClawRunsSource
+
+# retired 2026-06-08: openclaw decommissioned, replaced by Hermes memory provider
 
 SOURCE_REGISTRY: dict[str, type] = {
     "claude_code": ClaudeCodeSource,
@@ -13,8 +13,6 @@ SOURCE_REGISTRY: dict[str, type] = {
     "claude_mem_session": ClaudeMemSessionSource,
     "claude-mem-session": ClaudeMemSessionSource,
     "codex": CodexSource,
-    "openclaw": OpenClawSource,
-    "openclaw_runs": OpenClawRunsSource,
 }
 
 __all__ = [
@@ -22,7 +20,5 @@ __all__ = [
     "ClaudeHarnessSource",
     "ClaudeMemSessionSource",
     "CodexSource",
-    "OpenClawSource",
-    "OpenClawRunsSource",
     "SOURCE_REGISTRY",
 ]
