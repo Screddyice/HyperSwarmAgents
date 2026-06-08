@@ -37,6 +37,22 @@ _RECALL_WINDOW_DAYS = 365
 _TOP_K = 5
 _MAX_ENTRY_CHARS = 500
 
+# RECENCY weighting. Ranking blends keyword overlap with a recency component so
+# casual/vague queries ("what was I working on?") surface the NEWEST left-off
+# instead of an older keyword-rich entry. The recency component is bounded to
+# (0, 1] (newest -> ~1, decaying with age) and weighted by ``_RECENCY_WEIGHT``.
+#
+# Calibration: with _RECENCY_WEIGHT just above 1, a single extra keyword match
+# (the typical vague-phrasing case, e.g. "working on" matching one more low-
+# signal word) does NOT outrank a much newer entry — recency is the dominant
+# tiebreak when keyword scores are close. But a SPECIFIC query whose unique term
+# matches ONLY the old entry still returns it: the other entries score 0 and are
+# filtered out entirely, so recency never has the chance to bury a unique hit.
+# A genuinely keyword-richer match (2+ more terms) still beats mere recency.
+# Deterministic, no external deps.
+_RECENCY_WEIGHT = 1.1
+_RECENCY_HALFLIFE_DAYS = 30.0
+
 
 class HyperSwarmMemoryProvider:  # duck-types Hermes MemoryProvider ABC
     def __init__(self, root: str | None = None):
@@ -124,27 +140,48 @@ class HyperSwarmMemoryProvider:  # duck-types Hermes MemoryProvider ABC
 
     # --- recall -----------------------------------------------------------
 
+    @staticmethod
+    def _recency_score(entry: Entry, now: _dt.datetime) -> float:
+        """Bounded recency component in (0, 1]: newest ~1, decaying with age.
+
+        Exponential half-life decay keyed on ``entry.timestamp``. Deterministic
+        and dependency-free. Future-dated or now -> ~1.0; ages monotonically.
+        """
+        ts = getattr(entry, "timestamp", None)
+        if ts is None:
+            return 0.0
+        age_days = max(0.0, (now - ts).total_seconds() / 86400.0)
+        return 0.5 ** (age_days / _RECENCY_HALFLIFE_DAYS)
+
     def prefetch(self, query: str, *, session_id: str = "", org: str | None = None) -> str:
         active = self._active_org(org)
-        since = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=_RECALL_WINDOW_DAYS)
+        now = _dt.datetime.now(_dt.timezone.utc)
+        since = now - _dt.timedelta(days=_RECALL_WINDOW_DAYS)
         terms = [w for w in query.lower().split() if w]
 
-        hits: list[tuple[int, Entry]] = []
+        # Blended ranking: keyword_overlap + _RECENCY_WEIGHT * recency. With
+        # _RECENCY_WEIGHT < 1, one extra UNIQUE keyword match (a specific query)
+        # outranks a merely-newer entry; when keyword scores tie or are near
+        # zero (vague query) recency dominates. Carry timestamp as a final
+        # deterministic tiebreak.
+        hits: list[tuple[float, _dt.datetime, Entry]] = []
         for entry in self._store.list_since(since):
             # ORG ISOLATION: skip any entry not visible to the active org.
             if not self._visible(entry, active):
                 continue
             body_lc = entry.body.lower()
-            score = sum(1 for w in terms if w in body_lc)
-            if score:
-                hits.append((score, entry))
+            keyword_score = sum(1 for w in terms if w in body_lc)
+            if not keyword_score:
+                continue
+            blended = keyword_score + _RECENCY_WEIGHT * self._recency_score(entry, now)
+            hits.append((blended, entry.timestamp, entry))
 
         if not hits:
             return ""
 
-        hits.sort(key=lambda t: (t[0], t[1].timestamp), reverse=True)
+        hits.sort(key=lambda t: (t[0], t[1]), reverse=True)
         block = "\n\n".join(
-            f"- {entry.body.strip()[:_MAX_ENTRY_CHARS]}" for _, entry in hits[:_TOP_K]
+            f"- {entry.body.strip()[:_MAX_ENTRY_CHARS]}" for _, _, entry in hits[:_TOP_K]
         )
         return (
             "<memory-context>\n"
