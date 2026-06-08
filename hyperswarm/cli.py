@@ -509,16 +509,17 @@ def main() -> int:
     p_tune_ptp.add_argument("--verbose", "-v", action="store_true")
     p_tune_ptp.set_defaults(func=cmd_tune_pull_train_push)
 
+    # retired 2026-06-08: cloud GPU fine-tuning removed — on-device MLX only per Shawn.
     p_tune_train = sub.add_parser(
         "tune-train-local",
-        help="LoRA fine-tune locally (auto-detects backend: MLX on macOS arm64, Unsloth on Linux+CUDA)",
+        help="LoRA fine-tune on-device via MLX (macOS arm64; the only fine-tune path)",
     )
     p_tune_train.add_argument("--agent", required=True)
     p_tune_train.add_argument(
         "--backend",
-        choices=("auto", "mlx", "unsloth"),
+        choices=("auto", "mlx"),
         default="auto",
-        help="training backend (default auto: MLX on macOS arm64, Unsloth on Linux+CUDA)",
+        help="training backend (on-device MLX only; cloud GPU removed 2026-06-08)",
     )
     p_tune_train.add_argument(
         "--base-model",
@@ -526,8 +527,8 @@ def main() -> int:
         help="HF model id (default Qwen/Qwen3-8B, switchable to meta-llama/Meta-Llama-3.1-8B-Instruct etc.)",
     )
     p_tune_train.add_argument("--rank", type=int, default=None, help="LoRA rank / num-layers (default 16)")
-    p_tune_train.add_argument("--epochs", type=int, default=None, help="(Unsloth backend) training epochs (default 3)")
-    p_tune_train.add_argument("--iters", type=int, default=None, help="(MLX backend) training iterations (default 600)")
+    p_tune_train.add_argument("--epochs", type=int, default=None, help="(unused; retained for back-compat — MLX uses --iters)")
+    p_tune_train.add_argument("--iters", type=int, default=None, help="MLX training iterations (default 600)")
     p_tune_train.add_argument(
         "--min-new-examples",
         type=int,
@@ -537,7 +538,7 @@ def main() -> int:
     p_tune_train.add_argument(
         "--export-gguf",
         action="store_true",
-        help="(Unsloth backend) after training, export the merged LoRA model to GGUF for Ollama loadability",
+        help="(no-op for MLX; use the tune-export-gguf command to make a GGUF for Ollama)",
     )
     p_tune_train.add_argument("--verbose", "-v", action="store_true")
     p_tune_train.set_defaults(func=cmd_tune_train_local)
@@ -712,8 +713,8 @@ def cmd_tune_export_gguf(args: argparse.Namespace) -> int:
 
 def cmd_tune_pull_train_push(args: argparse.Namespace) -> int:
     """End-to-end Mac trainer: scp corpus from a server, train via MLX, scp
-    the resulting adapter back. Designed for the workflow 'Mac is primary
-    trainer when awake; cloud GPU is fallback when Mac is off.'"""
+    the resulting adapter back. The Mac is the only trainer — fine-tuning runs
+    on-device via MLX with no cloud-GPU fallback (cloud GPU removed 2026-06-08)."""
     import subprocess
     from pathlib import Path
 
@@ -810,53 +811,51 @@ def cmd_tune_pull_train_push(args: argparse.Namespace) -> int:
     return 0
 
 
+# retired 2026-06-08: cloud GPU fine-tuning removed — on-device MLX only per Shawn.
 def _resolve_train_backend(requested: str) -> str:
-    """Map --backend to a concrete backend name. 'auto' picks MLX on macOS
-    arm64 if mlx-lm is importable, else Unsloth on a CUDA host, else raises."""
-    if requested != "auto":
-        return requested
+    """Resolve --backend to a concrete backend name. On-device MLX is the only
+    supported fine-tune path; there is no cloud-GPU / Unsloth fallback.
+
+    'auto' (and 'mlx') resolve to MLX on macOS arm64 when mlx-lm is importable;
+    otherwise we raise rather than fall back to any remote/cloud trainer.
+    """
+    if requested not in ("auto", "mlx"):
+        raise SystemExit(
+            f"tune-train-local: unsupported backend {requested!r}. On-device MLX "
+            "is the only fine-tune path (cloud GPU removed 2026-06-08)."
+        )
     from hyperswarm.tuners.lora_mlx import is_mlx_available
     if is_mlx_available():
         return "mlx"
-    from hyperswarm.tuners.lora_local import is_cuda_available
-    if is_cuda_available():
-        return "unsloth"
     raise SystemExit(
-        "tune-train-local: no compatible backend detected. Install mlx-lm on "
-        "macOS arm64 or torch+unsloth on a CUDA host, then re-run with "
-        "--backend mlx or --backend unsloth explicitly."
+        "tune-train-local: MLX backend unavailable. Fine-tuning runs on-device "
+        "via mlx-lm on macOS arm64 only — install mlx-lm and re-run. (Cloud GPU "
+        "fine-tuning was removed 2026-06-08.)"
     )
 
 
+# retired 2026-06-08: cloud GPU fine-tuning removed — on-device MLX only per Shawn.
 def cmd_tune_train_local(args: argparse.Namespace) -> int:
-    """LoRA fine-tune locally. Auto-detects MLX (Mac primary) vs Unsloth (CUDA)."""
-    backend = _resolve_train_backend(args.backend)
+    """LoRA fine-tune on-device via MLX (the only fine-tune path)."""
+    backend = _resolve_train_backend(args.backend)  # always "mlx"
     kwargs: dict = {"agent": args.agent}
     if args.base_model:
         kwargs["base_model"] = args.base_model
     if args.min_new_examples is not None:
         kwargs["min_new_examples"] = args.min_new_examples
-    if backend == "mlx":
-        from hyperswarm.tuners.lora_mlx import MLXLoRATrainer
-        if args.rank is not None:
-            kwargs["num_layers"] = args.rank
-        if args.iters is not None:
-            kwargs["iters"] = args.iters
-        if args.export_gguf:
-            print(
-                "warning: --export-gguf is Unsloth-only (deferred for MLX). "
-                "Ignoring; the MLX adapter is loadable via mlx_lm.generate.",
-                file=sys.stderr,
-            )
-        trainer = MLXLoRATrainer(**kwargs)
-    else:  # unsloth
-        from hyperswarm.tuners.lora_local import LocalLoRATrainer
-        if args.rank is not None:
-            kwargs["lora_rank"] = args.rank
-        if args.epochs is not None:
-            kwargs["n_epochs"] = args.epochs
-        kwargs["export_gguf"] = args.export_gguf
-        trainer = LocalLoRATrainer(**kwargs)
+    from hyperswarm.tuners.lora_mlx import MLXLoRATrainer
+    if args.rank is not None:
+        kwargs["num_layers"] = args.rank
+    if args.iters is not None:
+        kwargs["iters"] = args.iters
+    if args.export_gguf:
+        print(
+            "warning: --export-gguf is handled by the separate tune-export-gguf "
+            "command for MLX. Ignoring; the MLX adapter is loadable via "
+            "mlx_lm.generate, or run `hyperswarm tune-export-gguf` to make a GGUF.",
+            file=sys.stderr,
+        )
+    trainer = MLXLoRATrainer(**kwargs)
 
     result = trainer.train()
     result["backend"] = backend

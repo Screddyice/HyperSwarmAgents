@@ -1,28 +1,29 @@
-"""Cross-node Jarvis corpus merger.
+"""Jarvis corpus merger — Mac-local only.
 
-Jarvis is Shawn-personal — one agent that runs on every node (Mac + NEB +
-Cliqk + TRC). To train ONE Jarvis adapter from all interaction history,
-this module:
+retired 2026-06-08: the dead AWS fleet (NEB / Cliqk / TRC) rsync sources were
+removed. Those EC2 instances are decommissioned, so Jarvis fine-tune corpus is
+now built from local Mac session JSONLs only. Fine-tuning is on-device MLX only
+per Shawn — keep the whole loop on the Mac.
 
-1. rsyncs each remote source's session JSONLs into a local staging area
-   (no-op for the local Mac source).
-2. Walks all staged JSONLs, namespaces session IDs by host so cursors don't
-   collide across hosts that happen to share a session UUID, and runs the
-   same pair-extraction the per-server collector uses.
+To build the Jarvis fine-tune corpus, this module:
+
+1. Reads local Mac session JSONLs directly (no rsync for local sources).
+2. Walks all JSONLs, namespaces session IDs by host so cursors don't collide
+   across sources that happen to share a session UUID, and runs the same
+   pair-extraction the per-server collector uses.
+
+The merger still supports remote sources mechanically (rsync staging is intact
+and exercised by tests), so a future node can be re-added by passing explicit
+`--source` specs — but the default source set is Mac-only.
 
 Output: one corpus.jsonl at ~/.openclaw/tune/<agent>/corpus.jsonl, ready
 for `hyperswarm tune-train-local --agent <agent>`. Defaults to agent name
-"jarvis" but the merger is agent-agnostic — re-using it for any future
-cross-node persona only requires changing the default source paths.
+"jarvis" but the merger is agent-agnostic.
 
 State file (`~/.local/state/hyperswarm/tune/<agent>/jarvis-merge-cursors.json`)
 is keyed by `host:session_id` so re-runs are idempotent and partial pulls
 don't lose progress. Per-host collection state from `tune-collect` lives in
 a separate file (`corpus-cursors.json`) — they don't conflict.
-
-Per-host clawdbots stay company-isolated by design. They each run
-`tune-collect` against their own server's sessions only. Only Jarvis fans
-in across all nodes.
 """
 from __future__ import annotations
 
@@ -72,32 +73,18 @@ class CorpusSource:
 
 
 def default_sources() -> list[CorpusSource]:
-    """Default Jarvis corpus sources: Mac + neb-server + cliqk-server + trc-server.
+    """Default Jarvis corpus sources: Mac only.
 
-    Mac reads Claude Code session jsonls. The three servers read openclaw's
-    Jarvis agent session jsonls. Each is overridable via the merger
-    constructor or the CLI's --source flag.
+    retired 2026-06-08: the dead AWS fleet (neb-server / cliqk-server /
+    trc-server) rsync sources were dropped — those instances are
+    decommissioned. Mac reads Claude Code session jsonls directly. Re-add a
+    node by passing an explicit --source spec to the CLI if it ever comes back.
     """
     return [
         CorpusSource(
             host="mac",
             remote_path=str(_expand("~/.claude/projects/-Users-screddy-projects")),
             ssh_alias=None,
-        ),
-        CorpusSource(
-            host="neb-server",
-            remote_path="~/.openclaw/agents/jarvis/sessions",
-            ssh_alias="neb-server",
-        ),
-        CorpusSource(
-            host="cliqk-server",
-            remote_path="~/.openclaw/agents/jarvis/sessions",
-            ssh_alias="cliqk-server",
-        ),
-        CorpusSource(
-            host="trc-server",
-            remote_path="~/.openclaw/agents/jarvis/sessions",
-            ssh_alias="trc-server",
         ),
     ]
 
