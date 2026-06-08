@@ -83,6 +83,95 @@ def test_prefetch_cross_org_matrix(tmp_path):
             assert f"{f} keyword" not in out
 
 
+# --- Task 6: ADVERSARIAL org-isolation gate --------------------------------
+# Actively try to break the boundary. Every entry tagged company=X must be
+# invisible to active org=Y!=X; shared (untagged) must be visible to all; and
+# none of the dangerous near-miss cases (whitespace, substring, init-only org,
+# the tool path) may leak.
+
+_ADV_ORGS = ["TMN", "Cliqk", "TRC", "Newcalgon", "HyperXOS"]
+
+
+def test_adversarial_full_org_leakage_matrix(tmp_path):
+    """N-org sweep: for every active org assert it sees ONLY its own scoped
+    entries plus shared, and NEVER any other org's entry."""
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+    for o in _ADV_ORGS:
+        _seed(p._store, f"{o} secret keyword payload", o)
+    _seed(p._store, "shared keyword payload", None)
+
+    for active in _ADV_ORGS:
+        out = p.prefetch("keyword", session_id="s", org=active)
+        assert f"{active} secret" in out, f"own entry missing for {active}"
+        assert "shared keyword" in out, f"shared invisible to {active}"
+        for other in _ADV_ORGS:
+            if other == active:
+                continue
+            assert f"{other} secret" not in out, (
+                f"LEAK: {other} entry surfaced under active org {active}"
+            )
+
+
+def test_adversarial_active_org_from_initialize_only(tmp_path):
+    """When the active org is set via initialize() (no per-call org=), recall
+    must still isolate — a Cliqk entry must not leak into a TMN session."""
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+    p.initialize("s", org="TMN")
+    _seed(p._store, "TMN alpha keyword", "TMN")
+    _seed(p._store, "Cliqk beta keyword", "Cliqk")
+    out = p.prefetch("keyword", session_id="s")  # no org kwarg -> self._org
+    assert "alpha" in out
+    assert "beta" not in out
+
+
+def test_adversarial_whitespace_padded_scope_no_leak(tmp_path):
+    """A whitespace-padded scope ("  Cliqk  ") must normalize and NOT leak into
+    a different active org."""
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+    _seed(p._store, "padded cliqk keyword", "  Cliqk  ")
+    out = p.prefetch("keyword", session_id="s", org="TMN")
+    assert "cliqk" not in out.lower()
+
+
+def test_adversarial_substring_org_name_no_leak(tmp_path):
+    """Org matching is exact equality, not prefix — a 'TMNX' entry must not
+    leak into a 'TMN' session."""
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+    _seed(p._store, "TMNX other keyword", "TMNX")
+    _seed(p._store, "TMN own keyword", "TMN")
+    out = p.prefetch("keyword", session_id="s", org="TMN")
+    assert "own keyword" in out
+    assert "TMNX" not in out
+
+
+def test_adversarial_tool_path_matrix_isolation(tmp_path):
+    """The explicit hyperswarm_search tool must enforce the same boundary as
+    prefetch across the full org matrix."""
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+    for o in _ADV_ORGS:
+        _seed(p._store, f"{o} secret keyword payload", o)
+    _seed(p._store, "shared keyword payload", None)
+    import json
+
+    for active in _ADV_ORGS:
+        p.initialize("s", org=active)
+        res = json.loads(p.handle_tool_call("hyperswarm_search", {"query": "keyword"}))
+        joined = " ".join(res["results"])
+        assert f"{active} secret" in joined
+        assert "shared keyword" in joined
+        for other in _ADV_ORGS:
+            if other == active:
+                continue
+            assert f"{other} secret" not in joined, (
+                f"LEAK via tool: {other} surfaced under active org {active}"
+            )
+
+
 # --- Task 3: write path (capture-scope safe) -------------------------------
 
 def test_write_is_session_scoped_not_per_turn(tmp_path):
