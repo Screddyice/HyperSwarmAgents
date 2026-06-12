@@ -303,3 +303,51 @@ def test_register_accepts_provider_kwarg_path():
     sentinel = HyperSwarmMemoryProvider()
     register(_Ctx(), provider=sentinel)
     assert captured["provider"] is sentinel
+
+
+# --- HYPERSWARM_MEMORY_DISABLE guard ----------------------------------------
+# Headless one-shot callers (e.g. the meeting-prep runner's `hermes -z`
+# synthesis) set HYPERSWARM_MEMORY_DISABLE=1 so their sessions neither inject
+# memory context nor write "session left-off" noise into the working store.
+
+def test_register_skips_when_disable_env_set(monkeypatch):
+    from hyperswarm.integrations.hermes import register
+
+    captured = {}
+
+    class _Ctx:
+        def register_memory_provider(self, provider):
+            captured["provider"] = provider
+
+    monkeypatch.setenv("HYPERSWARM_MEMORY_DISABLE", "1")
+    register(_Ctx())
+    assert "provider" not in captured
+
+
+def test_register_skips_for_true_value(monkeypatch):
+    from hyperswarm.integrations.hermes import register
+
+    captured = {}
+
+    class _Ctx:
+        def register_memory_provider(self, provider):
+            captured["provider"] = provider
+
+    monkeypatch.setenv("HYPERSWARM_MEMORY_DISABLE", "true")
+    register(_Ctx())
+    assert "provider" not in captured
+
+
+def test_register_runs_for_falsey_values(monkeypatch):
+    from hyperswarm.integrations.hermes import register
+
+    for val in ("", "0", "false", "no"):
+        captured = {}
+
+        class _Ctx:
+            def register_memory_provider(self, provider):
+                captured["provider"] = provider
+
+        monkeypatch.setenv("HYPERSWARM_MEMORY_DISABLE", val)
+        register(_Ctx())
+        assert isinstance(captured.get("provider"), HyperSwarmMemoryProvider), val
