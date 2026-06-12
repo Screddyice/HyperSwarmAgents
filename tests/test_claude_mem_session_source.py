@@ -153,6 +153,12 @@ def _never_called_gate(_prompt: str) -> str:  # pragma: no cover - asserted neve
     raise AssertionError("LLM gate should NOT be called for a routine session")
 
 
+def _declining_gate(_prompt: str) -> str:
+    return json.dumps(
+        {"qualifies": False, "trigger": None, "headline": "", "lesson_body": "", "reason": "routine"}
+    )
+
+
 _SIGNIFICANT_SUMMARY = {
     "request": "Wire up the X feature end to end",
     "investigated": "Tried approach A, it didn't work",
@@ -169,6 +175,18 @@ _ROUTINE_SUMMARY = {
     "completed": "Added the comment",
     "next_steps": "No active work in progress.",
     "notes": "",
+}
+
+# Not lesson-worthy (no pivot, no gotcha) but ends with real unfinished work —
+# the canonical "where Claude Code left off" handoff state.
+_LEFTOFF_SUMMARY = {
+    "request": "Add the Outreach tab to the client panel",
+    "investigated": "Read the existing Research tab wiring",
+    "learned": "Existing tab registry pattern was reused as-is",
+    "completed": "Tab scaffold and API client committed on feat/be-outreach-tab",
+    "next_steps": "Wire the send-queue endpoint, add bun:test coverage, then open the PR for review",
+    "notes": "",
+    "files_edited": "src/panels/outreach.tsx, src/api/sendqueue.ts",
 }
 
 
@@ -271,27 +289,145 @@ def test_capture_returns_none_for_routine_session(tmp_path: Path):
     assert entry is None
 
 
-def test_capture_returns_none_when_gate_declines(tmp_path: Path):
-    """A session that PASSES the structural pre-filter but the LLM gate rejects
-    must still produce nothing."""
+def test_capture_returns_none_when_gate_declines_and_no_handoff(tmp_path: Path):
+    """Gate declines AND next_steps is boilerplate -> nothing is written."""
     db = _make_db(tmp_path)
+    summary = dict(_SIGNIFICANT_SUMMARY, next_steps="No active work in progress.")
     _insert_session(
         db,
         content_session_id="cs-decline",
         memory_session_id="mem-decline",
-        summary=_SIGNIFICANT_SUMMARY,  # has teaching content -> reaches LLM gate
-    )
-    declining_gate = lambda _p: json.dumps(
-        {"qualifies": False, "trigger": None, "headline": "", "lesson_body": "", "reason": "routine"}
+        summary=summary,  # has teaching content -> reaches LLM gate
     )
     src = ClaudeMemSessionSource(
         {
             "settings_path": str(tmp_path / "settings.json"),
             "db_path": str(db),
-            "gate_fn": declining_gate,
+            "gate_fn": _declining_gate,
         }
     )
     assert src.capture({"session_id": "cs-decline", "cwd": "/tmp"}) is None
+
+
+# --------------------------------------------------------------------------- #
+# capture() — leftoff handoff fallback
+# --------------------------------------------------------------------------- #
+
+def test_gate_decline_with_substantive_next_steps_emits_leftoff(tmp_path: Path):
+    """Not lesson-worthy but real unfinished work -> ONE leftoff handoff Entry."""
+    db = _make_db(tmp_path)
+    _insert_session(
+        db,
+        content_session_id="cs-leftoff",
+        memory_session_id="mem-leftoff",
+        project="hyperscale",
+        summary=_LEFTOFF_SUMMARY,
+    )
+    src = ClaudeMemSessionSource(
+        {
+            "settings_path": str(tmp_path / "settings.json"),
+            "db_path": str(db),
+            "gate_fn": _declining_gate,
+        }
+    )
+    cwd = "/Users/x/projects/tmn/teamnebula.ai/hyperscale"
+    entry = src.capture({"session_id": "cs-leftoff", "cwd": cwd})
+    assert isinstance(entry, Entry)
+    assert entry.runtime == "claude-mem-session"
+    assert entry.session_id == "mem-leftoff"  # same idempotency key as lessons
+    assert entry.summary.startswith("Left off:")
+    assert "## Trigger" in entry.body and "leftoff" in entry.body
+    assert "## Left off" in entry.body
+    # Hermes prefetch scores keyword overlap against entry.body ONLY — the
+    # project name, cwd, and next steps must appear in the body verbatim.
+    assert "hyperscale" in entry.body
+    assert cwd in entry.body
+    assert _LEFTOFF_SUMMARY["next_steps"] in entry.body
+    assert entry.cwd == cwd
+    assert entry.project == "hyperscale"
+
+
+def test_gate_error_with_next_steps_still_emits_leftoff(tmp_path: Path):
+    """Codex down must not lose the handoff: gate error -> leftoff Entry."""
+    db = _make_db(tmp_path)
+    _insert_session(
+        db,
+        content_session_id="cs-gate-err",
+        memory_session_id="mem-gate-err",
+        summary=_LEFTOFF_SUMMARY,
+    )
+
+    def _raising_gate(_p: str) -> str:
+        raise RuntimeError("codex unreachable")
+
+    src = ClaudeMemSessionSource(
+        {
+            "settings_path": str(tmp_path / "settings.json"),
+            "db_path": str(db),
+            "gate_fn": _raising_gate,
+        }
+    )
+    entry = src.capture({"session_id": "cs-gate-err", "cwd": "/tmp"})
+    assert isinstance(entry, Entry)
+    assert "leftoff" in entry.body
+
+
+def test_qualifying_lesson_takes_precedence_over_leftoff(tmp_path: Path):
+    """A qualifying session emits the LESSON entry (which already carries
+    next_steps in its ## Session block) — never a second leftoff entry."""
+    db = _make_db(tmp_path)
+    _insert_session(
+        db,
+        content_session_id="cs-both",
+        memory_session_id="mem-both",
+        summary=_SIGNIFICANT_SUMMARY,  # substantive next_steps AND a lesson
+    )
+    src = ClaudeMemSessionSource(
+        {
+            "settings_path": str(tmp_path / "settings.json"),
+            "db_path": str(db),
+            "gate_fn": _qualifying_gate("lesson"),
+        }
+    )
+    entry = src.capture({"session_id": "cs-both", "cwd": "/tmp"})
+    assert isinstance(entry, Entry)
+    assert "## Lesson" in entry.body
+    assert "## Left off" not in entry.body
+    assert _SIGNIFICANT_SUMMARY["next_steps"] in entry.body  # rides ## Session
+
+
+@pytest.mark.parametrize(
+    "next_steps",
+    [
+        "",
+        "None",
+        "n/a",
+        "Done.",
+        "No active work in progress.",
+        "No further action needed at this time.",
+        "short",
+    ],
+)
+def test_boilerplate_next_steps_do_not_emit_leftoff(tmp_path: Path, next_steps: str):
+    db = _make_db(tmp_path)
+    summary = dict(_LEFTOFF_SUMMARY, next_steps=next_steps)
+    _insert_session(
+        db,
+        content_session_id=f"cs-bp-{abs(hash(next_steps))}",
+        memory_session_id=f"mem-bp-{abs(hash(next_steps))}",
+        summary=summary,
+    )
+    src = ClaudeMemSessionSource(
+        {
+            "settings_path": str(tmp_path / "settings.json"),
+            "db_path": str(db),
+            "gate_fn": _declining_gate,
+        }
+    )
+    assert (
+        src.capture({"session_id": f"cs-bp-{abs(hash(next_steps))}", "cwd": "/tmp"})
+        is None
+    )
 
 
 # --------------------------------------------------------------------------- #
