@@ -10,9 +10,19 @@ Entry — and only when the session contained a significant signal:
     (b) a MISSED NORTH-STAR / PR  — the stated objective/PR was not achieved
     (c) a LESSON / TEACHING       — a generalizable correction, gotcha, or rule
 
-If none of those hold, capture() returns None and the CLI writes nothing
-(cmd_capture treats `entry is None` as success). So a routine session produces
-zero entries; only the significant ones reach the Supabase training corpus.
+LEFTOFF FALLBACK: when the LLM gate declines (or errors) but the session ended
+with SUBSTANTIVE unfinished work — a non-boilerplate `next_steps` — capture()
+emits ONE deterministic "leftoff" handoff Entry instead of None. This is the
+"where Claude Code left off" state that Hermes' hyperswarm_search / prefetch
+promises ("what was last left off on"): project, cwd, request, completed,
+next_steps, files_edited, all in the body so keyword recall can match it.
+Sessions with no next steps (or boilerplate like "No active work in
+progress.") still distil to NOTHING — the store does not flood.
+
+If neither a lesson nor a leftoff holds, capture() returns None and the CLI
+writes nothing (cmd_capture treats `entry is None` as success). So a routine
+session produces zero entries; only the significant ones reach the Supabase
+training corpus.
 
 Wiring:
   1. install() merges a `SessionEnd` hook into ~/.claude/settings.json that
@@ -44,6 +54,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sqlite3
 from pathlib import Path
@@ -61,6 +72,18 @@ TRIGGER_COURSE_CHANGE = "course_change"
 TRIGGER_MISSED_PR = "missed_pr"
 TRIGGER_LESSON = "lesson"
 _VALID_TRIGGERS = {TRIGGER_COURSE_CHANGE, TRIGGER_MISSED_PR, TRIGGER_LESSON}
+
+# Deterministic fallback trigger — NOT an LLM-gate trigger. Emitted when the
+# gate declines/errors but the session left substantive unfinished work.
+TRIGGER_LEFTOFF = "leftoff"
+
+# claude-mem writes filler next_steps for idle/finished sessions; none of
+# these constitute a handoff worth storing.
+_BOILERPLATE_NEXT_STEPS = re.compile(
+    r"^(none|n/?a|nothing|all done|done|complete[d]?)[.!]?$"
+    r"|^no\s+(active|further|next|outstanding|remaining|pending|immediate)\b",
+    re.IGNORECASE,
+)
 
 
 def _resolve_hyperswarm_binary() -> str:
@@ -260,7 +283,12 @@ class ClaudeMemSessionSource(Source):
         # --- Tier 2: LLM significance gate -----------------------------------
         gate = self._run_gate(overview)
         if not gate.get("qualifies"):
-            return None
+            # LEFTOFF FALLBACK — deterministic, no LLM. A session that is not
+            # lesson-worthy but ended with substantive unfinished work still
+            # gets ONE handoff entry so Hermes can pick up where Claude Code
+            # left off. Also covers gate errors (codex down): the handoff
+            # state must not depend on the LLM being reachable.
+            return self._leftoff_entry(overview, cwd)
 
         memory_session_id = overview["memory_session_id"]
         summary = gate.get("headline") or self._fallback_headline(overview)
@@ -432,6 +460,62 @@ class ClaudeMemSessionSource(Source):
     def _fallback_headline(overview: dict) -> str:
         text = overview.get("request") or overview.get("learned") or "(claude-mem session)"
         return text.replace("\n", " ").strip()[:100]
+
+    # ------------------------------------------------------------- leftoff
+    @staticmethod
+    def _substantive_next_steps(overview: dict) -> str:
+        """Return the next_steps text iff it describes real unfinished work.
+
+        Empty, too-short, or boilerplate values ("No active work in
+        progress.", "None", "Done") return "" — no handoff to record.
+        """
+        text = (overview.get("next_steps") or "").strip()
+        if len(text) < 12:
+            return ""
+        if _BOILERPLATE_NEXT_STEPS.match(text):
+            return ""
+        return text
+
+    def _leftoff_entry(self, overview: dict, cwd: str) -> Entry | None:
+        """Build the deterministic handoff Entry, or None if nothing to hand off."""
+        next_steps = self._substantive_next_steps(overview)
+        if not next_steps:
+            return None
+
+        headline = self._fallback_headline(overview)
+        summary = f"Left off: {headline}"[:100]
+
+        # Everything Hermes needs to resume rides in the BODY: its prefetch /
+        # hyperswarm_search score keyword overlap against entry.body only, so
+        # the project name, cwd, and file paths must appear here verbatim.
+        lines = [
+            f"project: {overview.get('project') or '(unknown)'}",
+            f"cwd: {cwd}",
+        ]
+        for label, key in (
+            ("request", "request"),
+            ("completed", "completed"),
+            ("next_steps", "next_steps"),
+            ("files_edited", "files_edited"),
+        ):
+            v = (overview.get(key) or "").strip()
+            if v:
+                lines.append(f"{label}: {v}")
+
+        body = "\n\n".join(
+            [
+                f"## Trigger\n\n{TRIGGER_LEFTOFF}",
+                "## Left off\n\n" + "\n".join(lines),
+            ]
+        )
+        return Entry(
+            runtime=self.name,
+            cwd=cwd,
+            summary=summary,
+            body=body,
+            session_id=overview["memory_session_id"],  # same idempotency key
+            project=overview.get("project") or "",
+        )
 
     @staticmethod
     def _render_body(gate: dict, overview: dict) -> str:

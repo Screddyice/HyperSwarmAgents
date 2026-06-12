@@ -8,9 +8,17 @@ provider registers itself via ``ctx.register_memory_provider`` (mirrors
 """
 from __future__ import annotations
 
+import os
+
 from .provider import HyperSwarmMemoryProvider
 
 __all__ = ["HyperSwarmMemoryProvider", "register"]
+
+# Headless one-shot callers (e.g. the meeting-prep runner's `hermes -z`
+# synthesis) set this so their sessions neither inject memory context nor
+# write "session left-off" noise into the working store.
+_DISABLE_ENV = "HYPERSWARM_MEMORY_DISABLE"
+_TRUTHY = {"1", "true", "yes", "on"}
 
 
 def register(ctx, provider: "HyperSwarmMemoryProvider | None" = None, **kwargs) -> None:
@@ -28,6 +36,8 @@ def register(ctx, provider: "HyperSwarmMemoryProvider | None" = None, **kwargs) 
     re-verified against Hermes' ``plugins/memory/__init__.py`` at deploy time
     (Task 5 Step 2 / Task 7).
     """
+    if os.environ.get(_DISABLE_ENV, "").strip().lower() in _TRUTHY:
+        return
     if provider is None:
         provider = HyperSwarmMemoryProvider()
     ctx.register_memory_provider(provider)
