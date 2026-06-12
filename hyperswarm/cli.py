@@ -150,6 +150,14 @@ def cmd_capture(args: argparse.Namespace) -> int:
         scope = _build_scope(cfg)
         entry.scope = scope.tag(entry)
         store = _build_store(cfg)
+        if _already_captured(store, entry):
+            # Session-level idempotency. The same session can reach capture
+            # twice (direct SessionEnd hook + the push-leftoff wrapper's
+            # most-recent-completed resolver, or a manual re-run/backfill);
+            # one session must never produce two store entries.
+            if args.verbose:
+                print(f"skip: session {entry.session_id} already captured for {entry.runtime}")
+            return 0
         sid = store.write(entry)
         if args.verbose:
             print(f"wrote {sid}")
@@ -157,6 +165,21 @@ def cmd_capture(args: argparse.Namespace) -> int:
         print(f"persist failed for runtime={runtime}: {e}", file=sys.stderr)
         return 1
     return 0
+
+
+def _already_captured(store: MarkdownStore, entry, lookback_days: int = 30) -> bool:
+    """True iff the store already holds an entry for (runtime, session_id).
+
+    Entries without a session_id never dedup. The scan is bounded to recent
+    day-dirs via list_since, so it stays cheap on a sparse store.
+    """
+    if not entry.session_id:
+        return False
+    since = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=lookback_days)
+    for existing in store.list_since(since):
+        if existing.session_id == entry.session_id and existing.runtime == entry.runtime:
+            return True
+    return False
 
 
 # ----------------------------------------------------------------- install
