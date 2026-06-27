@@ -551,3 +551,57 @@ def test_parse_gate_json_embedded_in_prose():
 def test_gate_prompt_lists_three_triggers():
     for t in ("course_change", "missed_pr", "lesson"):
         assert t in _GATE_SYSTEM_PROMPT
+
+
+# --------------------------------------------------------------------------- #
+# Verbatim ## User turn (2026-06-27 capture-format fix) — the entry must carry
+# Shawn's real prompt so the corpus learning prefilter accepts it AND so the
+# training signal is verbatim, not the paraphrased request:/learned: summary.
+# --------------------------------------------------------------------------- #
+
+def test_capture_emits_verbatim_user_header(tmp_path: Path):
+    db = _make_db(tmp_path)
+    prompt = "No em dashes ever, and replicate Shawn's voice exactly"
+    _insert_session(
+        db,
+        content_session_id="cs-user",
+        memory_session_id="mem-user",
+        user_prompt=prompt,
+        summary=_SIGNIFICANT_SUMMARY,
+    )
+    src = ClaudeMemSessionSource(
+        {
+            "settings_path": str(tmp_path / "settings.json"),
+            "db_path": str(db),
+            "gate_fn": _qualifying_gate("correction"),
+        }
+    )
+    entry = src.capture({"session_id": "cs-user", "cwd": "/tmp"})
+    assert isinstance(entry, Entry)
+    assert "## User" in entry.body
+    assert prompt in entry.body  # verbatim, not paraphrased
+
+
+def test_leftoff_entry_includes_verbatim_user_header(tmp_path: Path):
+    db = _make_db(tmp_path)
+    prompt = "Make both agents autonomous with persistent memory"
+    _insert_session(
+        db,
+        content_session_id="cs-lo-user",
+        memory_session_id="mem-lo-user",
+        project="hyperscale",
+        user_prompt=prompt,
+        summary=_LEFTOFF_SUMMARY,
+    )
+    src = ClaudeMemSessionSource(
+        {
+            "settings_path": str(tmp_path / "settings.json"),
+            "db_path": str(db),
+            "gate_fn": _declining_gate,
+        }
+    )
+    entry = src.capture({"session_id": "cs-lo-user", "cwd": "/tmp/x"})
+    assert isinstance(entry, Entry)
+    assert "## Left off" in entry.body
+    assert "## User" in entry.body
+    assert prompt in entry.body
