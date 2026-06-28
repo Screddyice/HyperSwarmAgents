@@ -502,12 +502,13 @@ class ClaudeMemSessionSource(Source):
             if v:
                 lines.append(f"{label}: {v}")
 
-        body = "\n\n".join(
-            [
-                f"## Trigger\n\n{TRIGGER_LEFTOFF}",
-                "## Left off\n\n" + "\n".join(lines),
-            ]
-        )
+        body_parts = [f"## Trigger\n\n{TRIGGER_LEFTOFF}"]
+        # Carry Shawn's verbatim prompt here too (same rationale as _render_body).
+        user_prompt = (overview.get("user_prompt") or "").strip()
+        if user_prompt:
+            body_parts.append("## User\n\n" + user_prompt[:2000])
+        body_parts.append("## Left off\n\n" + "\n".join(lines))
+        body = "\n\n".join(body_parts)
         return Entry(
             runtime=self.name,
             cwd=cwd,
@@ -525,6 +526,15 @@ class ClaudeMemSessionSource(Source):
             f"## Trigger\n\n{trigger}",
             f"## Lesson\n\n{lesson}",
         ]
+        # Emit Shawn's VERBATIM first prompt under a `## User` header. This
+        # preserves his real words (better training signal than the paraphrased
+        # request:/learned: summary) AND satisfies the corpus learning prefilter,
+        # which keys on a Shawn-turn marker — without it every distilled session
+        # was skipped 'no_shawn_turns' and the learnings table went flat
+        # (capture-format mismatch, 2026-06-27). Cap length to avoid re-bloating.
+        user_prompt = (overview.get("user_prompt") or "").strip()
+        if user_prompt:
+            sections.append("## User\n\n" + user_prompt[:2000])
         sess_lines = []
         for label, key in (
             ("request", "request"),
