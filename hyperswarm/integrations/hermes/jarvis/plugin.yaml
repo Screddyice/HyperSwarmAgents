@@ -1,0 +1,4 @@
+name: jarvis
+version: 1.0.0
+description: "Jarvis brain — semantic recall + write-back over shawn-corpus (Postgres+pgvector). Replaces the HyperSwarm working-memory provider; GPT-5.4 stays the reasoner. query_brain stays reachable via the wired corpus-mcp."
+requires_env: [JARVIS_API_TOKEN]

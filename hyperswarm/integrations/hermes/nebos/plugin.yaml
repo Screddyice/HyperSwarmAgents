@@ -1,0 +1,3 @@
+name: nebos
+version: 1.0.0
+description: "NEBOS company-context layer — session-start Team Nebula snapshot (pipeline, clients, meetings, alerts). Read-only context; complements the nebos_* MCP tools."
