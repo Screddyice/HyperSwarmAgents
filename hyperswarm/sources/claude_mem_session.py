@@ -80,7 +80,8 @@ TRIGGER_LEFTOFF = "leftoff"
 # claude-mem writes filler next_steps for idle/finished sessions; none of
 # these constitute a handoff worth storing.
 _BOILERPLATE_NEXT_STEPS = re.compile(
-    r"^(none|n/?a|nothing|all done|done|complete[d]?)[.!]?$"
+    r"^(none|n/?a|nothing|all done|done|complete[d]?)"
+    r"(?:[.!]?$|[,;:]\s*(?:fully\s+)?(?:done|complete[d]?)[.!]?$)"
     r"|^no\s+(active|further|next|outstanding|remaining|pending|immediate)\b",
     re.IGNORECASE,
 )
