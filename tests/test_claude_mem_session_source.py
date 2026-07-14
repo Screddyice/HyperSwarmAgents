@@ -403,6 +403,8 @@ def test_qualifying_lesson_takes_precedence_over_leftoff(tmp_path: Path):
         "None",
         "n/a",
         "Done.",
+        "None, fully done",
+        "Nothing; complete.",
         "No active work in progress.",
         "No further action needed at this time.",
         "short",
