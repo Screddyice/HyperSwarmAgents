@@ -12,7 +12,7 @@ Four extension points, each with a tiny interface. You combine reference impleme
 
 | Extension point | What it does | Reference implementations |
 |---|---|---|
-| **Source** | Captures session state from a specific runtime — usually via a hook, wrapper, or directory watcher | `claude_code`, `codex`, `openclaw`, `directory_watcher` |
+| **Source** | Captures session state from a specific runtime — usually via a hook, wrapper, or directory watcher | `mem0_session` (Mem0 Platform, significance-gated), `claude_harness`, `claude_code`, `codex`, `claude_mem_session` (retired feed), `directory_watcher` |
 | **Store** | Persists captured entries — append-only by default for auditability | `markdown` (default), `sqlite` |
 | **Sync** | Moves entries between nodes when capture happens off the canonical host | `rsync_ssh` (default), `s3`, `git` |
 | **Scope** | Tags each entry so reads can filter by project / team / company / whatever | `path_prefix`, `git_remote`, `custom_callable` |
