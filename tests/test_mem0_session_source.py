@@ -107,7 +107,7 @@ def test_capture_leftoff_when_gate_rejects(tmp_path: Path):
         }
     )
     entry = src.capture(
-        {"session_id": "sess-leftoff", "cwd": "/Users/screddy/projects/Screddyice/HyperSwarmAgents"}
+        {"session_id": "sess-leftoff", "cwd": "/Users/screddy/projects/SRC/HyperSwarmAgents"}
     )
     assert isinstance(entry, Entry)
     assert entry.runtime == "mem0-session"

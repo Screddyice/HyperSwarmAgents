@@ -117,6 +117,17 @@ type = "cursor"
 
 That's it. The orchestrator calls `install()` on first run and `capture()` on every hook event.
 
+### A note on `cwd` in tests
+
+`capture()` receives a real `cwd`, and scope resolution derives the entry's tag from it, so
+some tests pin literal workspace paths rather than `tmp_path`. Those literals go stale when
+the workspace moves — the 2026-08-21 rename of `~/projects/Screddyice` to `~/projects/SRC`
+broke `tests/test_mem0_session_source.py` this way.
+
+The failure is easy to misread: the test exercises the gate-rejection path, so a stale `cwd`
+surfaces as a scope/gating assertion rather than anything path-shaped. If a `cwd`-dependent
+test starts failing after a workspace move, check the literal before the logic.
+
 ## Reflectors — making the brain smarter over time
 
 Sources capture-and-store. **Reflectors synthesize across sessions** so the agent gets smarter the longer it's running. Pattern reference: Park et al, "Generative Agents: Interactive Simulacra of Human Behavior" (2023) — Memory Stream → Reflection → Retrieval → Planning. This module implements the Reflection layer.
