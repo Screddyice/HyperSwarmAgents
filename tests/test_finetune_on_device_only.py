@@ -1,7 +1,7 @@
 """Lock in the 2026-06-08 retirement: on-device MLX is the ONLY fine-tune path.
 
 These tests guard against regressions that would re-introduce:
-- the dead AWS fleet (neb/cliqk/trc) rsync sources in the Jarvis merger
+- the dead AWS fleet (neb/cliqk/trc) rsync sources in the Screddy merger
 - a cloud-GPU / Unsloth fallback in the CLI backend resolver
 
 See hyperswarm/tuners/__init__.py and hyperswarm/cli.py retirement comments.
@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import pytest
 
-from hyperswarm.tuners.jarvis_merge import default_sources
+from hyperswarm.tuners.screddy_merge import default_sources
 
 
-# ── jarvis_merge: Mac-only default sources ─────────────────────────────
+# ── screddy_merge: Mac-only default sources ─────────────────────────────
 
 
 def test_default_sources_is_mac_only():

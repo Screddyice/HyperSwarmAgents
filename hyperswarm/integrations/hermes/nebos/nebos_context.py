@@ -4,7 +4,7 @@ NEBOS is MCP-only for the ``nebos_`` bearer, but ``/api/mcp`` accepts a STATELES
 single JSON-RPC ``tools/call`` POST (no initialize handshake, no session, no SSE)
 — so we fan out a few read-only tool calls and assemble the snapshot client-side.
 Used by BOTH Hermes instances as a session-start company-context layer
-(personal: folded into the Jarvis provider; TMN: the standalone nebos provider).
+(personal: folded into the Screddy provider; TMN: the standalone nebos provider).
 
 Creds are reused from the already-configured ``mcp_servers.nebos`` block in
 $HERMES_HOME/config.yaml (url + Bearer) — no new secret handling. Fail-soft:

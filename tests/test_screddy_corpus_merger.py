@@ -1,4 +1,4 @@
-"""Tests for JarvisCorpusMerger — cross-node Jarvis corpus merge.
+"""Tests for ScreddyCorpusMerger — cross-node Screddy corpus merge.
 
 The merger pulls session JSONLs from multiple hosts (rsync; injectable in
 tests), then walks them with host-namespaced cursors and writes one merged
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from hyperswarm.tuners.jarvis_merge import CorpusSource, JarvisCorpusMerger
+from hyperswarm.tuners.screddy_merge import CorpusSource, ScreddyCorpusMerger
 
 
 # ── helpers ────────────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ def _make_runner(*, fail_hosts: set[str] | None = None):
 
 def test_duplicate_host_raises(tmp_path: Path):
     with pytest.raises(ValueError, match="duplicate host"):
-        JarvisCorpusMerger(
+        ScreddyCorpusMerger(
             sources=[
                 CorpusSource(host="x", remote_path="/a"),
                 CorpusSource(host="x", remote_path="/b"),
@@ -92,7 +92,7 @@ def test_pull_remotes_calls_rsync_per_remote_skips_local(tmp_path: Path):
     (fake_neb / "abc.jsonl").write_text("")
 
     runner = _make_runner()
-    merger = JarvisCorpusMerger(
+    merger = ScreddyCorpusMerger(
         sources=[
             CorpusSource(host="mac", remote_path=str(tmp_path / "mac"), ssh_alias=None),
             CorpusSource(host="neb-server", remote_path=str(fake_neb), ssh_alias="neb-server"),
@@ -120,7 +120,7 @@ def test_pull_remotes_isolates_per_host_failure(tmp_path: Path):
     (fake_trc / "t1.jsonl").write_text("")
 
     runner = _make_runner(fail_hosts={"trc-server"})
-    merger = JarvisCorpusMerger(
+    merger = ScreddyCorpusMerger(
         sources=[
             CorpusSource(host="neb-server", remote_path=str(fake_neb), ssh_alias="neb-server"),
             CorpusSource(host="trc-server", remote_path=str(fake_trc), ssh_alias="trc-server"),
@@ -144,7 +144,7 @@ def test_pull_remotes_runner_crash_does_not_abort_others(tmp_path: Path):
     def bad_runner(*, src, dst):
         raise RuntimeError("ssh exploded")
 
-    merger = JarvisCorpusMerger(
+    merger = ScreddyCorpusMerger(
         sources=[
             CorpusSource(host="neb-server", remote_path=str(fake_neb), ssh_alias="neb"),
         ],
@@ -166,7 +166,7 @@ def test_collect_local_source_reads_remote_path_directly(tmp_path: Path):
     _write_session(mac_dir, "session-a", [
         ("hello there please help me with X", "absolutely — happy to help with X. Here's a long answer."),
     ])
-    merger = JarvisCorpusMerger(
+    merger = ScreddyCorpusMerger(
         sources=[CorpusSource(host="mac", remote_path=str(mac_dir), ssh_alias=None)],
         stage_base=tmp_path / "stage",
         corpus_base=tmp_path / "corpus",
@@ -175,7 +175,7 @@ def test_collect_local_source_reads_remote_path_directly(tmp_path: Path):
     res = merger.collect()
     assert res["appended"] == 1
     assert res["per_host"]["mac"]["appended"] == 1
-    corpus = (tmp_path / "corpus" / "jarvis" / "corpus.jsonl").read_text().strip().split("\n")
+    corpus = (tmp_path / "corpus" / "screddy" / "corpus.jsonl").read_text().strip().split("\n")
     assert len(corpus) == 1
     ex = json.loads(corpus[0])
     assert ex["messages"][1]["content"].startswith("hello there please help me")
@@ -192,7 +192,7 @@ def test_collect_namespaces_cursors_by_host(tmp_path: Path):
         ("question two with enough chars to pass", "answer two with enough chars to pass the filter"),
     ])
 
-    merger = JarvisCorpusMerger(
+    merger = ScreddyCorpusMerger(
         sources=[
             CorpusSource(host="neb-server", remote_path="ignored-bc-staged", ssh_alias="neb-server"),
             CorpusSource(host="trc-server", remote_path="ignored-bc-staged", ssh_alias="trc-server"),
@@ -206,7 +206,7 @@ def test_collect_namespaces_cursors_by_host(tmp_path: Path):
     assert res["per_host"]["neb-server"]["appended"] == 1
     assert res["per_host"]["trc-server"]["appended"] == 1
 
-    state = json.loads((tmp_path / "state" / "jarvis" / "jarvis-merge-cursors.json").read_text())
+    state = json.loads((tmp_path / "state" / "screddy" / "screddy-merge-cursors.json").read_text())
     assert "neb-server:sid-x" in state["cursors"]
     assert "trc-server:sid-x" in state["cursors"]
 
@@ -216,7 +216,7 @@ def test_collect_is_idempotent_across_runs(tmp_path: Path):
     _write_session(stage, "sid-1", [
         ("first question good length here", "first answer good length here for filter pass"),
     ])
-    merger = JarvisCorpusMerger(
+    merger = ScreddyCorpusMerger(
         sources=[CorpusSource(host="neb-server", remote_path="x", ssh_alias="neb-server")],
         stage_base=tmp_path / "stage",
         corpus_base=tmp_path / "corpus",
@@ -226,7 +226,7 @@ def test_collect_is_idempotent_across_runs(tmp_path: Path):
     r2 = merger.collect()
     assert r1["appended"] == 1
     assert r2["appended"] == 0  # cursor caught up
-    corpus = (tmp_path / "corpus" / "jarvis" / "corpus.jsonl").read_text().strip().split("\n")
+    corpus = (tmp_path / "corpus" / "screddy" / "corpus.jsonl").read_text().strip().split("\n")
     assert len(corpus) == 1
 
 
@@ -235,7 +235,7 @@ def test_collect_picks_up_appended_lines_in_existing_session(tmp_path: Path):
     p = _write_session(stage, "sid-1", [
         ("first user msg good length", "first assistant msg good length"),
     ])
-    merger = JarvisCorpusMerger(
+    merger = ScreddyCorpusMerger(
         sources=[CorpusSource(host="neb-server", remote_path="x", ssh_alias="neb-server")],
         stage_base=tmp_path / "stage",
         corpus_base=tmp_path / "corpus",
@@ -260,7 +260,7 @@ def test_collect_filters_short_pairs(tmp_path: Path):
         ("longer user msg good length", "k"),            # assistant too short
         ("longer user msg good length", "long enough assistant reply"),  # passes
     ])
-    merger = JarvisCorpusMerger(
+    merger = ScreddyCorpusMerger(
         sources=[CorpusSource(host="neb-server", remote_path="x", ssh_alias="neb-server")],
         stage_base=tmp_path / "stage",
         corpus_base=tmp_path / "corpus",
@@ -271,7 +271,7 @@ def test_collect_filters_short_pairs(tmp_path: Path):
 
 
 def test_collect_skips_missing_dir_without_crash(tmp_path: Path):
-    merger = JarvisCorpusMerger(
+    merger = ScreddyCorpusMerger(
         sources=[CorpusSource(host="ghost", remote_path=str(tmp_path / "doesnotexist"), ssh_alias=None)],
         stage_base=tmp_path / "stage",
         corpus_base=tmp_path / "corpus",
@@ -292,7 +292,7 @@ def test_collect_ignores_trajectory_files(tmp_path: Path):
     (stage / "real.trajectory.jsonl").write_text(
         json.dumps({"type": "message", "message": {"role": "user", "content": "should not be in corpus"}}) + "\n"
     )
-    merger = JarvisCorpusMerger(
+    merger = ScreddyCorpusMerger(
         sources=[CorpusSource(host="neb-server", remote_path="x", ssh_alias="neb-server")],
         stage_base=tmp_path / "stage",
         corpus_base=tmp_path / "corpus",
@@ -308,7 +308,7 @@ def test_run_combines_pull_and_collect(tmp_path: Path):
         ("real user message long enough", "real assistant response long enough"),
     ])
     runner = _make_runner()
-    merger = JarvisCorpusMerger(
+    merger = ScreddyCorpusMerger(
         sources=[CorpusSource(host="neb-server", remote_path=str(fake_neb), ssh_alias="neb-server")],
         stage_base=tmp_path / "stage",
         corpus_base=tmp_path / "corpus",

@@ -24,11 +24,11 @@ from hyperswarm.tuners.gguf_export import (
     GGUFExporter,
     export_gguf,
 )
-from hyperswarm.tuners.jarvis_merge import (
+from hyperswarm.tuners.screddy_merge import (
     CorpusSource,
-    JarvisCorpusMerger,
-    default_sources as default_jarvis_sources,
-    merge_jarvis_corpus,
+    ScreddyCorpusMerger,
+    default_sources as default_screddy_sources,
+    merge_screddy_corpus,
 )
 
 __all__ = [
@@ -39,9 +39,9 @@ __all__ = [
     "GGUFExporter",
     "export_gguf",
     "CorpusSource",
-    "JarvisCorpusMerger",
-    "default_jarvis_sources",
-    "merge_jarvis_corpus",
+    "ScreddyCorpusMerger",
+    "default_screddy_sources",
+    "merge_screddy_corpus",
 ]
 
 # Backend history + selection:

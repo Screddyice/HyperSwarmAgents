@@ -1,4 +1,4 @@
-"""JarvisMemoryProvider — Hermes memory backed by the Jarvis brain.
+"""ScreddyMemoryProvider — Hermes memory backed by the Screddy brain.
 
 Duck-types Hermes' ``agent/memory_provider.py::MemoryProvider`` ABC (not
 imported, so the module stays importable outside Hermes' venv; at runtime it
@@ -8,7 +8,7 @@ provider on Shawn's personal Hermes.
 
 Memory model
 ------------
-- Recall (``prefetch``): on each turn, semantic search the Jarvis brain
+- Recall (``prefetch``): on each turn, semantic search the Screddy brain
   (``POST /search`` against the shawn-corpus REST API, pgvector) and inject the
   top-K observation texts as RAW context (the MemoryManager wraps it in
   ``<memory-context>`` — we must NOT pre-wrap). At the first prefetch of a
@@ -69,7 +69,7 @@ _DEFAULTS = {
 
 
 def _load_cfg() -> dict:
-    """Read the optional ``jarvis:`` block from $HERMES_HOME/config.yaml; fall
+    """Read the optional ``screddy:`` block from $HERMES_HOME/config.yaml; fall
     back to defaults. Best-effort — never raises."""
     cfg = dict(_DEFAULTS)
     home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
@@ -78,7 +78,7 @@ def _load_cfg() -> dict:
         import yaml  # PyYAML is present in the Hermes venv
         with open(path, encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
-        block = data.get("jarvis") or {}
+        block = data.get("screddy") or {}
         if isinstance(block, dict):
             for k in _DEFAULTS:
                 if k in block and block[k] is not None:
@@ -88,10 +88,10 @@ def _load_cfg() -> dict:
     return cfg
 
 
-class JarvisMemoryProvider:  # duck-types Hermes MemoryProvider ABC
+class ScreddyMemoryProvider:  # duck-types Hermes MemoryProvider ABC
     def __init__(self) -> None:
         self._cfg = _load_cfg()
-        self._token = os.environ.get("JARVIS_API_TOKEN", "")
+        self._token = os.environ.get("SCREDDY_API_TOKEN", "")
         self._session_id = ""
         self._buffer: list[tuple[str, str]] = []
         self._digest_done = False
@@ -100,7 +100,7 @@ class JarvisMemoryProvider:  # duck-types Hermes MemoryProvider ABC
 
     @property
     def name(self) -> str:
-        return "jarvis"
+        return "screddy"
 
     def is_available(self) -> bool:
         # No network here — just config + creds (ABC contract).
@@ -118,7 +118,7 @@ class JarvisMemoryProvider:  # duck-types Hermes MemoryProvider ABC
         )
         # Re-read token in case the env was populated after construction.
         if not self._token:
-            self._token = os.environ.get("JARVIS_API_TOKEN", "")
+            self._token = os.environ.get("SCREDDY_API_TOKEN", "")
 
     def on_session_switch(self, new_session_id: str, **kwargs) -> None:
         self._session_id = new_session_id
@@ -150,8 +150,8 @@ class JarvisMemoryProvider:  # duck-types Hermes MemoryProvider ABC
 
     def system_prompt_block(self) -> str:
         return (
-            "Your long-term memory is Jarvis (Shawn's brain). Relevant memories are "
-            "auto-recalled each turn. Use the `jarvis_recall` tool for deeper or older "
+            "Your long-term memory is Screddy (Shawn's brain). Relevant memories are "
+            "auto-recalled each turn. Use the `screddy_recall` tool for deeper or older "
             "lookups, the `coding_leftoff` tool when he asks where he left off / what he was "
             "working on / a repo's state (claude-mem coding handoffs), and the corpus-mcp "
             "`query_brain` tool for judgment calls in Shawn's voice."
@@ -199,7 +199,7 @@ class JarvisMemoryProvider:  # duck-types Hermes MemoryProvider ABC
             )
             lines = self._hits_to_lines((res or {}).get("hits", []))
             if lines:
-                parts.append("Relevant memories from Jarvis:\n" + "\n".join(lines))
+                parts.append("Relevant memories from Screddy:\n" + "\n".join(lines))
         except Exception:
             # Brain slow/down — never stall the turn.
             return "\n\n".join(parts).strip()
@@ -231,7 +231,7 @@ class JarvisMemoryProvider:  # duck-types Hermes MemoryProvider ABC
                 entry = Entry(
                     runtime="hermes",
                     cwd=os.getcwd(),
-                    summary="Hermes session (Jarvis-backed)",
+                    summary="Hermes session (Screddy-backed)",
                     body=body,
                     session_id=self._session_id,
                     scope=str(self._cfg.get("company") or ""),
@@ -264,9 +264,9 @@ class JarvisMemoryProvider:  # duck-types Hermes MemoryProvider ABC
     def get_tool_schemas(self):
         return [
             {
-                "name": "jarvis_recall",
+                "name": "screddy_recall",
                 "description": (
-                    "Semantic search of Shawn's long-term Jarvis brain (observations, "
+                    "Semantic search of Shawn's long-term Screddy brain (observations, "
                     "decisions, facts; pgvector). Use for deeper or older recall than the "
                     "auto-injected memory. For judgment calls in Shawn's voice, use the "
                     "corpus-mcp query_brain tool instead."
@@ -341,7 +341,7 @@ class JarvisMemoryProvider:  # duck-types Hermes MemoryProvider ABC
         if tool_name == "coding_leftoff":
             results = self._coding_leftoff(args.get("query", ""), int(args.get("k") or 5))
             return json.dumps({"results": results})
-        if tool_name != "jarvis_recall":
+        if tool_name != "screddy_recall":
             raise NotImplementedError(tool_name)
         query = args.get("query", "")
         k = int(args.get("k") or self._cfg["search_k"])

@@ -135,7 +135,7 @@ Sources capture-and-store. **Reflectors synthesize across sessions** so the agen
 ### `hyperswarm reflect`
 
 ```bash
-hyperswarm reflect --agent jarvis
+hyperswarm reflect --agent screddy
 ```
 
 Reads new turns from `~/.openclaw/agents/<agent>/sessions/*.jsonl`, calls an LLM with a strict "extract only high-signal learnings" prompt, and writes zero-or-more YAML-frontmatter markdown blocks into `~/.openclaw/claude-code-history/projects/-Users-screddy-projects/memory/server-learned/<agent>/`. Per-session cursor in `~/.local/state/hyperswarm/reflect/<agent>.json` keeps the next run idempotent.
@@ -149,7 +149,7 @@ The output dir is the same one openclaw's `memory_search` already indexes via `e
 **Recommended cron** on each server:
 
 ```bash
-0 */6 * * * /home/ubuntu/.local/bin/hyperswarm reflect --agent jarvis >> ~/.local/state/hyperswarm/reflect.log 2>&1
+0 */6 * * * /home/ubuntu/.local/bin/hyperswarm reflect --agent screddy >> ~/.local/state/hyperswarm/reflect.log 2>&1
 ```
 
 ### Building your own reflector
@@ -158,7 +158,7 @@ The output dir is the same one openclaw's `memory_search` already indexes via `e
 from hyperswarm.reflectors.openclaw_session import OpenClawSessionReflector
 
 result = OpenClawSessionReflector(
-    agent="jarvis",
+    agent="screddy",
     host="my-server",
     output_base="~/wherever/memory/server-learned",
     llm_call=my_llm_function,  # for tests or alternate providers
@@ -261,7 +261,7 @@ CUDA-only. Cleanly raises `RuntimeError("Local LoRA training requires ...")` on 
 
 ### Optional: GGUF export for Ollama
 
-Pass `--export-gguf` and the trainer also writes a quantized GGUF file alongside the adapter. Ollama can `ollama create my-jarvis -f Modelfile` against that GGUF, making the personalized model loadable on any of the CPU inference servers.
+Pass `--export-gguf` and the trainer also writes a quantized GGUF file alongside the adapter. Ollama can `ollama create my-screddy -f Modelfile` against that GGUF, making the personalized model loadable on any of the CPU inference servers.
 
 ## Watchers — event-driven, no constant crons
 
@@ -270,7 +270,7 @@ Reflectors and Tuners are CLI commands. Running them on a calendar (`*/6 * * *`)
 ### `hyperswarm watch`
 
 ```bash
-hyperswarm watch --agent jarvis --agent clawdbot
+hyperswarm watch --agent screddy --agent clawdbot
 ```
 
 Polls session JSONLs every 30 seconds (configurable). When a session has been idle for 5 minutes (configurable via `--debounce`), the watcher fires:
@@ -294,7 +294,7 @@ After=network-online.target
 
 [Service]
 EnvironmentFile=-/home/ubuntu/.openclaw/.env
-ExecStart=%h/.local/bin/hyperswarm watch --agent jarvis --agent clawdbot
+ExecStart=%h/.local/bin/hyperswarm watch --agent screddy --agent clawdbot
 Restart=always
 RestartSec=10
 

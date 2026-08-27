@@ -443,7 +443,7 @@ def main() -> int:
         "--agent",
         action="append",
         required=True,
-        help="agent id to watch (repeat for multiple: --agent jarvis --agent clawdbot)",
+        help="agent id to watch (repeat for multiple: --agent screddy --agent clawdbot)",
     )
     p_watch.add_argument("--poll-interval", type=int, default=None, help="seconds between scans (default 30)")
     p_watch.add_argument(
@@ -464,16 +464,16 @@ def main() -> int:
     p_tune_collect.add_argument("--verbose", "-v", action="store_true")
     p_tune_collect.set_defaults(func=cmd_tune_collect)
 
-    p_tune_collect_jarvis = sub.add_parser(
-        "tune-collect-jarvis",
-        help="cross-node Jarvis corpus merge: rsync session jsonls from Mac + neb + cliqk + trc, build one corpus.jsonl",
+    p_tune_collect_screddy = sub.add_parser(
+        "tune-collect-screddy",
+        help="cross-node Screddy corpus merge: rsync session jsonls from Mac + neb + cliqk + trc, build one corpus.jsonl",
     )
-    p_tune_collect_jarvis.add_argument(
+    p_tune_collect_screddy.add_argument(
         "--agent",
-        default="jarvis",
-        help="agent id (default: jarvis). The merger is agent-agnostic; override only if you have another cross-node persona.",
+        default="screddy",
+        help="agent id (default: screddy). The merger is agent-agnostic; override only if you have another cross-node persona.",
     )
-    p_tune_collect_jarvis.add_argument(
+    p_tune_collect_screddy.add_argument(
         "--source",
         action="append",
         default=None,
@@ -482,13 +482,13 @@ def main() -> int:
             "Repeatable. If omitted, the standard Mac+neb+cliqk+trc defaults are used."
         ),
     )
-    p_tune_collect_jarvis.add_argument(
+    p_tune_collect_screddy.add_argument(
         "--no-pull",
         action="store_true",
         help="skip rsync; only collect from existing staged dirs (debug aid)",
     )
-    p_tune_collect_jarvis.add_argument("--verbose", "-v", action="store_true")
-    p_tune_collect_jarvis.set_defaults(func=cmd_tune_collect_jarvis)
+    p_tune_collect_screddy.add_argument("--verbose", "-v", action="store_true")
+    p_tune_collect_screddy.set_defaults(func=cmd_tune_collect_screddy)
 
     p_tune_gguf = sub.add_parser(
         "tune-export-gguf",
@@ -605,7 +605,7 @@ def main() -> int:
     p_reflect.add_argument(
         "--agent",
         required=True,
-        help="openclaw agent id whose sessions to reflect on (e.g. jarvis, clawdbot)",
+        help="openclaw agent id whose sessions to reflect on (e.g. screddy, clawdbot)",
     )
     p_reflect.add_argument(
         "--host",
@@ -665,7 +665,7 @@ def cmd_tune_collect(args: argparse.Namespace) -> int:
 
 def _parse_source_spec(spec: str):
     """Parse a --source spec like 'host=mac,ssh=local,path=/x/y' into a CorpusSource."""
-    from hyperswarm.tuners.jarvis_merge import CorpusSource
+    from hyperswarm.tuners.screddy_merge import CorpusSource
 
     parts = dict()
     for kv in spec.split(","):
@@ -681,18 +681,18 @@ def _parse_source_spec(spec: str):
     return CorpusSource(host=parts["host"], remote_path=parts["path"], ssh_alias=ssh)
 
 
-def cmd_tune_collect_jarvis(args: argparse.Namespace) -> int:
-    """Cross-node Jarvis corpus merge — rsync session jsonls from every node
+def cmd_tune_collect_screddy(args: argparse.Namespace) -> int:
+    """Cross-node Screddy corpus merge — rsync session jsonls from every node
     Shawn talks to, build one unified corpus.jsonl that the Mac trainer can
     pick up via the standard tune-train-local path."""
-    from hyperswarm.tuners.jarvis_merge import JarvisCorpusMerger, default_sources
+    from hyperswarm.tuners.screddy_merge import ScreddyCorpusMerger, default_sources
 
     sources = (
         [_parse_source_spec(s) for s in args.source]
         if args.source
         else default_sources()
     )
-    merger = JarvisCorpusMerger(agent=args.agent, sources=sources)
+    merger = ScreddyCorpusMerger(agent=args.agent, sources=sources)
     pull = {"skipped": True} if args.no_pull else merger.pull_remotes()
     collect = merger.collect()
     out = {"pull": pull, "collect": collect}
