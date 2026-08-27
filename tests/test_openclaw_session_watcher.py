@@ -32,24 +32,24 @@ def _touch_session(tmp_path: Path, agent: str, sid: str, mtime: float) -> Path:
 def test_scan_picks_idle_sessions_only(tmp_path: Path):
     now = time.time()
     # Idle session (last write 600s ago — past 300s debounce)
-    _touch_session(tmp_path, "jarvis", "old-idle", mtime=now - 600)
+    _touch_session(tmp_path, "screddy", "old-idle", mtime=now - 600)
     # Recent session (last write 60s ago — under debounce)
-    _touch_session(tmp_path, "jarvis", "still-active", mtime=now - 60)
+    _touch_session(tmp_path, "screddy", "still-active", mtime=now - 60)
 
     w = OpenClawSessionWatcher(
-        agents=["jarvis"],
+        agents=["screddy"],
         agents_dir=tmp_path / "agents",
         debounce_s=300,
         hyperswarm_bin="/bin/true",  # dummy
     )
     ready = w._scan_once()
-    assert ("jarvis", "old-idle") in ready
-    assert ("jarvis", "still-active") not in ready
+    assert ("screddy", "old-idle") in ready
+    assert ("screddy", "still-active") not in ready
 
 
 def test_scan_ignores_trajectory_files(tmp_path: Path):
     now = time.time()
-    sdir = tmp_path / "agents" / "jarvis" / "sessions"
+    sdir = tmp_path / "agents" / "screddy" / "sessions"
     sdir.mkdir(parents=True)
     real = sdir / "abc.jsonl"
     real.write_text("dummy\n")
@@ -59,24 +59,24 @@ def test_scan_ignores_trajectory_files(tmp_path: Path):
     os.utime(traj, (now - 600, now - 600))
 
     w = OpenClawSessionWatcher(
-        agents=["jarvis"], agents_dir=tmp_path / "agents", debounce_s=300, hyperswarm_bin="/bin/true"
+        agents=["screddy"], agents_dir=tmp_path / "agents", debounce_s=300, hyperswarm_bin="/bin/true"
     )
     ready = w._scan_once()
-    assert ("jarvis", "abc") in ready
-    assert ("jarvis", "abc.trajectory") not in ready
+    assert ("screddy", "abc") in ready
+    assert ("screddy", "abc.trajectory") not in ready
 
 
 def test_already_processed_does_not_refire(tmp_path: Path):
     now = time.time()
-    _touch_session(tmp_path, "jarvis", "session-a", mtime=now - 600)
+    _touch_session(tmp_path, "screddy", "session-a", mtime=now - 600)
     w = OpenClawSessionWatcher(
-        agents=["jarvis"], agents_dir=tmp_path / "agents", debounce_s=300, hyperswarm_bin="/bin/true"
+        agents=["screddy"], agents_dir=tmp_path / "agents", debounce_s=300, hyperswarm_bin="/bin/true"
     )
     ready1 = w._scan_once()
-    assert ("jarvis", "session-a") in ready1
+    assert ("screddy", "session-a") in ready1
     # Mark as processed (what _process does)
-    w._state[("jarvis", "session-a")].last_processed_mtime = w._state[
-        ("jarvis", "session-a")
+    w._state[("screddy", "session-a")].last_processed_mtime = w._state[
+        ("screddy", "session-a")
     ].last_mtime
 
     # Second scan: same session, no new mtime → not ready
@@ -88,15 +88,15 @@ def test_processed_session_refires_when_mtime_advances(tmp_path: Path):
     """If the agent resumes a session (writes more lines later), the watcher
     should re-trigger after the next idle window."""
     now = time.time()
-    p = _touch_session(tmp_path, "jarvis", "session-b", mtime=now - 600)
+    p = _touch_session(tmp_path, "screddy", "session-b", mtime=now - 600)
     w = OpenClawSessionWatcher(
-        agents=["jarvis"], agents_dir=tmp_path / "agents", debounce_s=300, hyperswarm_bin="/bin/true"
+        agents=["screddy"], agents_dir=tmp_path / "agents", debounce_s=300, hyperswarm_bin="/bin/true"
     )
     # First pass — ready, mark processed
     ready1 = w._scan_once()
-    assert ("jarvis", "session-b") in ready1
-    w._state[("jarvis", "session-b")].last_processed_mtime = w._state[
-        ("jarvis", "session-b")
+    assert ("screddy", "session-b") in ready1
+    w._state[("screddy", "session-b")].last_processed_mtime = w._state[
+        ("screddy", "session-b")
     ].last_mtime
 
     # Bump mtime forward (still idle for 600s — pretend session resumed
@@ -105,7 +105,7 @@ def test_processed_session_refires_when_mtime_advances(tmp_path: Path):
     os.utime(p, (new_mtime, new_mtime))
 
     ready2 = w._scan_once()
-    assert ("jarvis", "session-b") in ready2
+    assert ("screddy", "session-b") in ready2
 
 
 def test_process_fires_three_subprocess_calls_in_order(tmp_path: Path, monkeypatch):
@@ -123,25 +123,25 @@ def test_process_fires_three_subprocess_calls_in_order(tmp_path: Path, monkeypat
     monkeypatch.setattr("subprocess.run", fake_run)
 
     w = OpenClawSessionWatcher(
-        agents=["jarvis"],
+        agents=["screddy"],
         agents_dir=tmp_path / "agents",
         hyperswarm_bin="/usr/bin/hyperswarm",
         enable_tune=True,
     )
     # Need to simulate state so _process knows the session
     now = time.time()
-    _touch_session(tmp_path, "jarvis", "session-c", mtime=now - 600)
+    _touch_session(tmp_path, "screddy", "session-c", mtime=now - 600)
     w._scan_once()  # populates _state
 
-    w._process("jarvis", "session-c")
+    w._process("screddy", "session-c")
 
     # 2 calls: reflect, tune-collect (training is manual on a GPU host, not
     # auto-fired by the watcher)
     assert len(calls) == 2
-    assert calls[0] == ["/usr/bin/hyperswarm", "reflect", "--agent", "jarvis"]
-    assert calls[1] == ["/usr/bin/hyperswarm", "tune-collect", "--agent", "jarvis"]
+    assert calls[0] == ["/usr/bin/hyperswarm", "reflect", "--agent", "screddy"]
+    assert calls[1] == ["/usr/bin/hyperswarm", "tune-collect", "--agent", "screddy"]
     # processed_mtime advances
-    s = w._state[("jarvis", "session-c")]
+    s = w._state[("screddy", "session-c")]
     assert s.last_processed_mtime == s.last_mtime
 
 
@@ -156,15 +156,15 @@ def test_process_with_no_tune_skips_tune_calls(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("subprocess.run", lambda cmd, **kw: (calls.append(cmd) or FakeResult()))
 
     w = OpenClawSessionWatcher(
-        agents=["jarvis"],
+        agents=["screddy"],
         agents_dir=tmp_path / "agents",
         hyperswarm_bin="/usr/bin/hyperswarm",
         enable_tune=False,
     )
     now = time.time()
-    _touch_session(tmp_path, "jarvis", "x", mtime=now - 600)
+    _touch_session(tmp_path, "screddy", "x", mtime=now - 600)
     w._scan_once()
-    w._process("jarvis", "x")
+    w._process("screddy", "x")
     assert len(calls) == 1
     assert calls[0][1] == "reflect"
 
@@ -178,10 +178,10 @@ def test_failed_cli_call_does_not_crash_loop(tmp_path: Path, monkeypatch, caplog
     monkeypatch.setattr("subprocess.run", lambda cmd, **kw: FakeResult())
 
     w = OpenClawSessionWatcher(
-        agents=["jarvis"], agents_dir=tmp_path / "agents", hyperswarm_bin="/usr/bin/hyperswarm"
+        agents=["screddy"], agents_dir=tmp_path / "agents", hyperswarm_bin="/usr/bin/hyperswarm"
     )
     now = time.time()
-    _touch_session(tmp_path, "jarvis", "y", mtime=now - 600)
+    _touch_session(tmp_path, "screddy", "y", mtime=now - 600)
     w._scan_once()
     # Should not raise, just log a warning per failed call
-    w._process("jarvis", "y")
+    w._process("screddy", "y")

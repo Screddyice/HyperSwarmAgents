@@ -12,7 +12,7 @@ chat-format:
 
 One example per user→assistant pair. The system prompt is a short personalized
 preamble naming the agent and the user (Shawn) so the fine-tune learns
-"this is jarvis-for-Shawn" rather than generic agent behavior.
+"this is screddy-for-Shawn" rather than generic agent behavior.
 
 Corpus state lives at ~/.local/state/hyperswarm/tune/<agent>/corpus-cursors.json
 The corpus file itself lives at ~/.openclaw/tune/<agent>/corpus.jsonl by default.

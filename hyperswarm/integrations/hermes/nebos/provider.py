@@ -3,7 +3,7 @@
 Duck-types Hermes' MemoryProvider ABC. Its only job is to inject a compact
 NEBOS company snapshot at the first prefetch of a session (company state changes
 slowly, so once/session). No personal recall, no write-back — that distinguishes
-it from the personal-instance Jarvis provider. The model still has the live
+it from the personal-instance Screddy provider. The model still has the live
 nebos_* MCP tools for on-demand detail.
 """
 from __future__ import annotations

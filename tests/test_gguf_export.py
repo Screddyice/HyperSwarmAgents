@@ -33,7 +33,7 @@ def _seed_state(state_dir: Path, agent: str, *, current_adapter: str | None, bas
 
 
 def _seed_adapter(tmp_path: Path) -> Path:
-    adapter_dir = tmp_path / "tune" / "jarvis" / "lora-output-mlx" / "run-1" / "adapter"
+    adapter_dir = tmp_path / "tune" / "screddy" / "lora-output-mlx" / "run-1" / "adapter"
     adapter_dir.mkdir(parents=True)
     (adapter_dir / "adapters.safetensors").write_bytes(b"adapter-weights")
     return adapter_dir
@@ -104,7 +104,7 @@ def runner_convert_fails(*, cmd, cwd, log_path, append=False):
 
 def test_export_fails_when_no_state(tmp_path: Path):
     res = GGUFExporter(
-        agent="jarvis",
+        agent="screddy",
         state_dir=tmp_path / "state",
         runner=make_two_step_runner(),
     ).export()
@@ -113,9 +113,9 @@ def test_export_fails_when_no_state(tmp_path: Path):
 
 
 def test_export_fails_when_no_current_adapter(tmp_path: Path):
-    _seed_state(tmp_path / "state", "jarvis", current_adapter=None)
+    _seed_state(tmp_path / "state", "screddy", current_adapter=None)
     res = GGUFExporter(
-        agent="jarvis",
+        agent="screddy",
         state_dir=tmp_path / "state",
         runner=make_two_step_runner(),
     ).export()
@@ -124,9 +124,9 @@ def test_export_fails_when_no_current_adapter(tmp_path: Path):
 
 
 def test_export_fails_when_adapter_dir_missing(tmp_path: Path):
-    _seed_state(tmp_path / "state", "jarvis", current_adapter=str(tmp_path / "ghost"))
+    _seed_state(tmp_path / "state", "screddy", current_adapter=str(tmp_path / "ghost"))
     res = GGUFExporter(
-        agent="jarvis",
+        agent="screddy",
         state_dir=tmp_path / "state",
         runner=make_two_step_runner(),
     ).export()
@@ -139,9 +139,9 @@ def test_export_fails_when_adapter_dir_missing(tmp_path: Path):
 
 def test_export_fails_when_fuse_subprocess_returns_nonzero(tmp_path: Path):
     adapter = _seed_adapter(tmp_path)
-    _seed_state(tmp_path / "state", "jarvis", current_adapter=str(adapter))
+    _seed_state(tmp_path / "state", "screddy", current_adapter=str(adapter))
     res = GGUFExporter(
-        agent="jarvis",
+        agent="screddy",
         state_dir=tmp_path / "state",
         runner=runner_fuse_fails,
     ).export()
@@ -151,9 +151,9 @@ def test_export_fails_when_fuse_subprocess_returns_nonzero(tmp_path: Path):
 
 def test_export_fails_when_fuse_succeeds_but_writes_nothing(tmp_path: Path):
     adapter = _seed_adapter(tmp_path)
-    _seed_state(tmp_path / "state", "jarvis", current_adapter=str(adapter))
+    _seed_state(tmp_path / "state", "screddy", current_adapter=str(adapter))
     res = GGUFExporter(
-        agent="jarvis",
+        agent="screddy",
         state_dir=tmp_path / "state",
         runner=make_two_step_runner(fuse_writes_safetensors=False),
     ).export()
@@ -170,9 +170,9 @@ def test_export_fails_with_clear_instructions_when_llama_cpp_missing(tmp_path: P
     monkeypatch.delenv("HYPERSWARM_LLAMA_CPP_DIR", raising=False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "no_llama_here")
     adapter = _seed_adapter(tmp_path)
-    _seed_state(tmp_path / "state", "jarvis", current_adapter=str(adapter))
+    _seed_state(tmp_path / "state", "screddy", current_adapter=str(adapter))
     res = GGUFExporter(
-        agent="jarvis",
+        agent="screddy",
         state_dir=tmp_path / "state",
         runner=make_two_step_runner(),
     ).export()
@@ -185,9 +185,9 @@ def test_export_fails_with_clear_instructions_when_llama_cpp_missing(tmp_path: P
 def test_export_uses_llama_cpp_from_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _seed_llama_cpp(tmp_path, monkeypatch)
     adapter = _seed_adapter(tmp_path)
-    _seed_state(tmp_path / "state", "jarvis", current_adapter=str(adapter))
+    _seed_state(tmp_path / "state", "screddy", current_adapter=str(adapter))
     res = GGUFExporter(
-        agent="jarvis",
+        agent="screddy",
         state_dir=tmp_path / "state",
         runner=make_two_step_runner(),
     ).export()
@@ -198,9 +198,9 @@ def test_export_uses_llama_cpp_from_env_var(tmp_path: Path, monkeypatch: pytest.
 def test_export_succeeds_full_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _seed_llama_cpp(tmp_path, monkeypatch)
     adapter = _seed_adapter(tmp_path)
-    _seed_state(tmp_path / "state", "jarvis", current_adapter=str(adapter), base_model="Qwen/Qwen3-8B")
+    _seed_state(tmp_path / "state", "screddy", current_adapter=str(adapter), base_model="Qwen/Qwen3-8B")
     res = GGUFExporter(
-        agent="jarvis",
+        agent="screddy",
         state_dir=tmp_path / "state",
         runner=make_two_step_runner(),
     ).export()
@@ -208,7 +208,7 @@ def test_export_succeeds_full_pipeline(tmp_path: Path, monkeypatch: pytest.Monke
     gguf = Path(res["gguf_path"])
     assert gguf.exists()
     assert gguf.read_bytes() == b"GGUF-fake"
-    state = json.loads((tmp_path / "state" / "jarvis" / "finetune-state.json").read_text())
+    state = json.loads((tmp_path / "state" / "screddy" / "finetune-state.json").read_text())
     assert state["current_gguf"] == str(gguf)
     assert len(state["gguf_history"]) == 1
     assert state["gguf_history"][0]["base_model"] == "Qwen/Qwen3-8B"
@@ -217,15 +217,15 @@ def test_export_succeeds_full_pipeline(tmp_path: Path, monkeypatch: pytest.Monke
 def test_export_failure_in_convert_does_not_overwrite_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _seed_llama_cpp(tmp_path, monkeypatch)
     adapter = _seed_adapter(tmp_path)
-    _seed_state(tmp_path / "state", "jarvis", current_adapter=str(adapter))
+    _seed_state(tmp_path / "state", "screddy", current_adapter=str(adapter))
     res = GGUFExporter(
-        agent="jarvis",
+        agent="screddy",
         state_dir=tmp_path / "state",
         runner=runner_convert_fails,
     ).export()
     assert res["status"] == "failed"
     assert "llama.cpp convert returned non-zero" in res["reason"]
-    state = json.loads((tmp_path / "state" / "jarvis" / "finetune-state.json").read_text())
+    state = json.loads((tmp_path / "state" / "screddy" / "finetune-state.json").read_text())
     assert state.get("current_gguf") is None
 
 
@@ -234,7 +234,7 @@ def test_export_skips_fuse_when_already_done(tmp_path: Path, monkeypatch: pytest
     Saves time on retry-after-llama.cpp-install."""
     _seed_llama_cpp(tmp_path, monkeypatch)
     adapter = _seed_adapter(tmp_path)
-    _seed_state(tmp_path / "state", "jarvis", current_adapter=str(adapter))
+    _seed_state(tmp_path / "state", "screddy", current_adapter=str(adapter))
 
     # Pre-create the fused dir as if a prior fuse already succeeded
     fused_dir = adapter.parent / "fused"
@@ -257,7 +257,7 @@ def test_export_skips_fuse_when_already_done(tmp_path: Path, monkeypatch: pytest
         return 1
 
     res = GGUFExporter(
-        agent="jarvis",
+        agent="screddy",
         state_dir=tmp_path / "state",
         runner=runner,
     ).export()

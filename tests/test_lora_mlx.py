@@ -67,7 +67,7 @@ def _runner_writes_no_adapter(*, cmd, cwd, log_path):
 
 def test_train_skips_empty_corpus(tmp_path: Path):
     t = MLXLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         runner=_runner_writes_adapter,
@@ -78,9 +78,9 @@ def test_train_skips_empty_corpus(tmp_path: Path):
 
 
 def test_train_skips_below_threshold(tmp_path: Path):
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=10)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=10)
     t = MLXLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -92,9 +92,9 @@ def test_train_skips_below_threshold(tmp_path: Path):
 
 
 def test_train_completes_writes_adapter(tmp_path: Path):
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=100)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=100)
     t = MLXLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -105,7 +105,7 @@ def test_train_completes_writes_adapter(tmp_path: Path):
     assert res["backend"] == BACKEND_NAME
     assert "adapter" in res["adapter_path"]
     assert Path(res["adapter_path"], "adapters.safetensors").exists()
-    state = json.loads((tmp_path / "state" / "jarvis" / "finetune-state.json").read_text())
+    state = json.loads((tmp_path / "state" / "screddy" / "finetune-state.json").read_text())
     assert state["backend"] == BACKEND_NAME
     assert state["current_adapter"] == res["adapter_path"]
     assert state["last_run_status"] == "completed"
@@ -116,9 +116,9 @@ def test_train_completes_writes_adapter(tmp_path: Path):
 
 def test_train_split_train_valid(tmp_path: Path):
     """val_fraction=0.1 → ~10% of examples go to valid.jsonl."""
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=100)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=100)
     t = MLXLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -135,7 +135,7 @@ def test_train_split_train_valid(tmp_path: Path):
 
 def test_train_command_includes_correct_flags(tmp_path: Path):
     """Verify the constructed command line matches what mlx_lm.lora expects."""
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=100)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=100)
     captured: list[list[str]] = []
 
     def capture_runner(*, cmd, cwd, log_path):
@@ -143,7 +143,7 @@ def test_train_command_includes_correct_flags(tmp_path: Path):
         return _runner_writes_adapter(cmd=cmd, cwd=cwd, log_path=log_path)
 
     t = MLXLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         base_model="Qwen/Qwen3-8B",
         num_layers=8,
         iters=200,
@@ -167,9 +167,9 @@ def test_train_command_includes_correct_flags(tmp_path: Path):
 def test_train_failure_marks_failed_and_preserves_prior_adapter(tmp_path: Path):
     """A failed run should NOT overwrite the current_adapter from a prior
     successful run. Symmetric with the Unsloth trainer's behavior."""
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=100)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=100)
     t1 = MLXLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -178,9 +178,9 @@ def test_train_failure_marks_failed_and_preserves_prior_adapter(tmp_path: Path):
     res1 = t1.train()
     first_adapter = res1["adapter_path"]
 
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=200)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=200)
     t2 = MLXLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -188,7 +188,7 @@ def test_train_failure_marks_failed_and_preserves_prior_adapter(tmp_path: Path):
     )
     res2 = t2.train()
     assert res2["status"] == "failed"
-    state = json.loads((tmp_path / "state" / "jarvis" / "finetune-state.json").read_text())
+    state = json.loads((tmp_path / "state" / "screddy" / "finetune-state.json").read_text())
     assert state["current_adapter"] == first_adapter
     assert state["last_run_status"] == "failed"
     assert len(state["history"]) == 2
@@ -198,9 +198,9 @@ def test_train_failure_marks_failed_and_preserves_prior_adapter(tmp_path: Path):
 def test_train_subprocess_exit_zero_but_no_adapter_marks_failed(tmp_path: Path):
     """Defensive check: if mlx_lm exits 0 but writes no adapter file, we
     treat it as a failure rather than recording a phantom adapter."""
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=100)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=100)
     t = MLXLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -212,8 +212,8 @@ def test_train_subprocess_exit_zero_but_no_adapter_marks_failed(tmp_path: Path):
 
 
 def test_train_skips_when_previous_run_marked_running(tmp_path: Path):
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=100)
-    state_path = tmp_path / "state" / "jarvis" / "finetune-state.json"
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=100)
+    state_path = tmp_path / "state" / "screddy" / "finetune-state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
         json.dumps(
@@ -230,7 +230,7 @@ def test_train_skips_when_previous_run_marked_running(tmp_path: Path):
         )
     )
     t = MLXLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -242,9 +242,9 @@ def test_train_skips_when_previous_run_marked_running(tmp_path: Path):
 
 
 def test_status_returns_current_adapter_after_success(tmp_path: Path):
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=100)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=100)
     t = MLXLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -260,7 +260,7 @@ def test_status_returns_current_adapter_after_success(tmp_path: Path):
 
 def test_status_no_run_yet(tmp_path: Path):
     t = MLXLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
     )

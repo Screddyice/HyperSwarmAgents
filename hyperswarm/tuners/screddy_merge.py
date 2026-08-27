@@ -1,11 +1,11 @@
-"""Jarvis corpus merger — Mac-local only.
+"""Screddy corpus merger — Mac-local only.
 
 retired 2026-06-08: the dead AWS fleet (NEB / Cliqk / TRC) rsync sources were
-removed. Those EC2 instances are decommissioned, so Jarvis fine-tune corpus is
+removed. Those EC2 instances are decommissioned, so Screddy fine-tune corpus is
 now built from local Mac session JSONLs only. Fine-tuning is on-device MLX only
 per Shawn — keep the whole loop on the Mac.
 
-To build the Jarvis fine-tune corpus, this module:
+To build the Screddy fine-tune corpus, this module:
 
 1. Reads local Mac session JSONLs directly (no rsync for local sources).
 2. Walks all JSONLs, namespaces session IDs by host so cursors don't collide
@@ -18,9 +18,9 @@ and exercised by tests), so a future node can be re-added by passing explicit
 
 Output: one corpus.jsonl at ~/.openclaw/tune/<agent>/corpus.jsonl, ready
 for `hyperswarm tune-train-local --agent <agent>`. Defaults to agent name
-"jarvis" but the merger is agent-agnostic.
+"screddy" but the merger is agent-agnostic.
 
-State file (`~/.local/state/hyperswarm/tune/<agent>/jarvis-merge-cursors.json`)
+State file (`~/.local/state/hyperswarm/tune/<agent>/screddy-merge-cursors.json`)
 is keyed by `host:session_id` so re-runs are idempotent and partial pulls
 don't lose progress. Per-host collection state from `tune-collect` lives in
 a separate file (`corpus-cursors.json`) — they don't conflict.
@@ -47,7 +47,7 @@ from hyperswarm.tuners.openclaw_corpus import (
     pair_to_example,
 )
 
-DEFAULT_STAGE_BASE = "~/.openclaw/tune/_jarvis-stage"
+DEFAULT_STAGE_BASE = "~/.openclaw/tune/_screddy-stage"
 
 
 def _expand(p: str | os.PathLike) -> Path:
@@ -73,7 +73,7 @@ class CorpusSource:
 
 
 def default_sources() -> list[CorpusSource]:
-    """Default Jarvis corpus sources: Mac only.
+    """Default Screddy corpus sources: Mac only.
 
     retired 2026-06-08: the dead AWS fleet (neb-server / cliqk-server /
     trc-server) rsync sources were dropped — those instances are
@@ -105,8 +105,8 @@ def _real_rsync(*, src: str, dst: Path, timeout: int = 600) -> tuple[int, str]:
 
 
 @dataclass
-class JarvisCorpusMerger:
-    agent: str = "jarvis"
+class ScreddyCorpusMerger:
+    agent: str = "screddy"
     sources: list[CorpusSource] = field(default_factory=default_sources)
     stage_base: Path | None = None
     corpus_base: Path | None = None
@@ -137,7 +137,7 @@ class JarvisCorpusMerger:
 
     @property
     def state_path(self) -> Path:
-        return self.state_dir / self.agent / "jarvis-merge-cursors.json"
+        return self.state_dir / self.agent / "screddy-merge-cursors.json"
 
     def _stage_dir_for(self, source: CorpusSource) -> Path:
         return self.stage_base / source.host
@@ -262,6 +262,6 @@ class JarvisCorpusMerger:
         return {"pull": pull, "collect": collect}
 
 
-def merge_jarvis_corpus(**kwargs) -> dict:
+def merge_screddy_corpus(**kwargs) -> dict:
     """Module-level convenience: pull + collect in one call."""
-    return JarvisCorpusMerger(**kwargs).run()
+    return ScreddyCorpusMerger(**kwargs).run()

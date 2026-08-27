@@ -1,4 +1,4 @@
-"""OpenClaw session reflector — distill jarvis/clawdbot session JSONLs into
+"""OpenClaw session reflector — distill screddy/clawdbot session JSONLs into
 curated memory files.
 
 Architecture:
