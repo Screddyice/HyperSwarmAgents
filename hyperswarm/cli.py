@@ -150,6 +150,14 @@ def cmd_capture(args: argparse.Namespace) -> int:
         scope = _build_scope(cfg)
         entry.scope = scope.tag(entry)
         store = _build_store(cfg)
+        if _already_captured(store, entry):
+            # Session-level idempotency. The same session can reach capture
+            # twice (direct SessionEnd hook + the push-leftoff wrapper's
+            # most-recent-completed resolver, or a manual re-run/backfill);
+            # one session must never produce two store entries.
+            if args.verbose:
+                print(f"skip: session {entry.session_id} already captured for {entry.runtime}")
+            return 0
         sid = store.write(entry)
         if args.verbose:
             print(f"wrote {sid}")
@@ -157,6 +165,21 @@ def cmd_capture(args: argparse.Namespace) -> int:
         print(f"persist failed for runtime={runtime}: {e}", file=sys.stderr)
         return 1
     return 0
+
+
+def _already_captured(store: MarkdownStore, entry, lookback_days: int = 30) -> bool:
+    """True iff the store already holds an entry for (runtime, session_id).
+
+    Entries without a session_id never dedup. The scan is bounded to recent
+    day-dirs via list_since, so it stays cheap on a sparse store.
+    """
+    if not entry.session_id:
+        return False
+    since = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=lookback_days)
+    for existing in store.list_since(since):
+        if existing.session_id == entry.session_id and existing.runtime == entry.runtime:
+            return True
+    return False
 
 
 # ----------------------------------------------------------------- install
@@ -420,7 +443,7 @@ def main() -> int:
         "--agent",
         action="append",
         required=True,
-        help="agent id to watch (repeat for multiple: --agent jarvis --agent clawdbot)",
+        help="agent id to watch (repeat for multiple: --agent screddy --agent clawdbot)",
     )
     p_watch.add_argument("--poll-interval", type=int, default=None, help="seconds between scans (default 30)")
     p_watch.add_argument(
@@ -441,16 +464,16 @@ def main() -> int:
     p_tune_collect.add_argument("--verbose", "-v", action="store_true")
     p_tune_collect.set_defaults(func=cmd_tune_collect)
 
-    p_tune_collect_jarvis = sub.add_parser(
-        "tune-collect-jarvis",
-        help="cross-node Jarvis corpus merge: rsync session jsonls from Mac + neb + cliqk + trc, build one corpus.jsonl",
+    p_tune_collect_screddy = sub.add_parser(
+        "tune-collect-screddy",
+        help="cross-node Screddy corpus merge: rsync session jsonls from Mac + neb + cliqk + trc, build one corpus.jsonl",
     )
-    p_tune_collect_jarvis.add_argument(
+    p_tune_collect_screddy.add_argument(
         "--agent",
-        default="jarvis",
-        help="agent id (default: jarvis). The merger is agent-agnostic; override only if you have another cross-node persona.",
+        default="screddy",
+        help="agent id (default: screddy). The merger is agent-agnostic; override only if you have another cross-node persona.",
     )
-    p_tune_collect_jarvis.add_argument(
+    p_tune_collect_screddy.add_argument(
         "--source",
         action="append",
         default=None,
@@ -459,13 +482,13 @@ def main() -> int:
             "Repeatable. If omitted, the standard Mac+neb+cliqk+trc defaults are used."
         ),
     )
-    p_tune_collect_jarvis.add_argument(
+    p_tune_collect_screddy.add_argument(
         "--no-pull",
         action="store_true",
         help="skip rsync; only collect from existing staged dirs (debug aid)",
     )
-    p_tune_collect_jarvis.add_argument("--verbose", "-v", action="store_true")
-    p_tune_collect_jarvis.set_defaults(func=cmd_tune_collect_jarvis)
+    p_tune_collect_screddy.add_argument("--verbose", "-v", action="store_true")
+    p_tune_collect_screddy.set_defaults(func=cmd_tune_collect_screddy)
 
     p_tune_gguf = sub.add_parser(
         "tune-export-gguf",
@@ -509,16 +532,17 @@ def main() -> int:
     p_tune_ptp.add_argument("--verbose", "-v", action="store_true")
     p_tune_ptp.set_defaults(func=cmd_tune_pull_train_push)
 
+    # retired 2026-06-08: cloud GPU fine-tuning removed — on-device MLX only per Shawn.
     p_tune_train = sub.add_parser(
         "tune-train-local",
-        help="LoRA fine-tune locally (auto-detects backend: MLX on macOS arm64, Unsloth on Linux+CUDA)",
+        help="LoRA fine-tune on-device via MLX (macOS arm64; the only fine-tune path)",
     )
     p_tune_train.add_argument("--agent", required=True)
     p_tune_train.add_argument(
         "--backend",
-        choices=("auto", "mlx", "unsloth"),
+        choices=("auto", "mlx"),
         default="auto",
-        help="training backend (default auto: MLX on macOS arm64, Unsloth on Linux+CUDA)",
+        help="training backend (on-device MLX only; cloud GPU removed 2026-06-08)",
     )
     p_tune_train.add_argument(
         "--base-model",
@@ -526,8 +550,8 @@ def main() -> int:
         help="HF model id (default Qwen/Qwen3-8B, switchable to meta-llama/Meta-Llama-3.1-8B-Instruct etc.)",
     )
     p_tune_train.add_argument("--rank", type=int, default=None, help="LoRA rank / num-layers (default 16)")
-    p_tune_train.add_argument("--epochs", type=int, default=None, help="(Unsloth backend) training epochs (default 3)")
-    p_tune_train.add_argument("--iters", type=int, default=None, help="(MLX backend) training iterations (default 600)")
+    p_tune_train.add_argument("--epochs", type=int, default=None, help="(unused; retained for back-compat — MLX uses --iters)")
+    p_tune_train.add_argument("--iters", type=int, default=None, help="MLX training iterations (default 600)")
     p_tune_train.add_argument(
         "--min-new-examples",
         type=int,
@@ -537,7 +561,7 @@ def main() -> int:
     p_tune_train.add_argument(
         "--export-gguf",
         action="store_true",
-        help="(Unsloth backend) after training, export the merged LoRA model to GGUF for Ollama loadability",
+        help="(no-op for MLX; use the tune-export-gguf command to make a GGUF for Ollama)",
     )
     p_tune_train.add_argument("--verbose", "-v", action="store_true")
     p_tune_train.set_defaults(func=cmd_tune_train_local)
@@ -581,7 +605,7 @@ def main() -> int:
     p_reflect.add_argument(
         "--agent",
         required=True,
-        help="openclaw agent id whose sessions to reflect on (e.g. jarvis, clawdbot)",
+        help="openclaw agent id whose sessions to reflect on (e.g. screddy, clawdbot)",
     )
     p_reflect.add_argument(
         "--host",
@@ -641,7 +665,7 @@ def cmd_tune_collect(args: argparse.Namespace) -> int:
 
 def _parse_source_spec(spec: str):
     """Parse a --source spec like 'host=mac,ssh=local,path=/x/y' into a CorpusSource."""
-    from hyperswarm.tuners.jarvis_merge import CorpusSource
+    from hyperswarm.tuners.screddy_merge import CorpusSource
 
     parts = dict()
     for kv in spec.split(","):
@@ -657,18 +681,18 @@ def _parse_source_spec(spec: str):
     return CorpusSource(host=parts["host"], remote_path=parts["path"], ssh_alias=ssh)
 
 
-def cmd_tune_collect_jarvis(args: argparse.Namespace) -> int:
-    """Cross-node Jarvis corpus merge — rsync session jsonls from every node
+def cmd_tune_collect_screddy(args: argparse.Namespace) -> int:
+    """Cross-node Screddy corpus merge — rsync session jsonls from every node
     Shawn talks to, build one unified corpus.jsonl that the Mac trainer can
     pick up via the standard tune-train-local path."""
-    from hyperswarm.tuners.jarvis_merge import JarvisCorpusMerger, default_sources
+    from hyperswarm.tuners.screddy_merge import ScreddyCorpusMerger, default_sources
 
     sources = (
         [_parse_source_spec(s) for s in args.source]
         if args.source
         else default_sources()
     )
-    merger = JarvisCorpusMerger(agent=args.agent, sources=sources)
+    merger = ScreddyCorpusMerger(agent=args.agent, sources=sources)
     pull = {"skipped": True} if args.no_pull else merger.pull_remotes()
     collect = merger.collect()
     out = {"pull": pull, "collect": collect}
@@ -712,8 +736,8 @@ def cmd_tune_export_gguf(args: argparse.Namespace) -> int:
 
 def cmd_tune_pull_train_push(args: argparse.Namespace) -> int:
     """End-to-end Mac trainer: scp corpus from a server, train via MLX, scp
-    the resulting adapter back. Designed for the workflow 'Mac is primary
-    trainer when awake; cloud GPU is fallback when Mac is off.'"""
+    the resulting adapter back. The Mac is the only trainer — fine-tuning runs
+    on-device via MLX with no cloud-GPU fallback (cloud GPU removed 2026-06-08)."""
     import subprocess
     from pathlib import Path
 
@@ -810,53 +834,51 @@ def cmd_tune_pull_train_push(args: argparse.Namespace) -> int:
     return 0
 
 
+# retired 2026-06-08: cloud GPU fine-tuning removed — on-device MLX only per Shawn.
 def _resolve_train_backend(requested: str) -> str:
-    """Map --backend to a concrete backend name. 'auto' picks MLX on macOS
-    arm64 if mlx-lm is importable, else Unsloth on a CUDA host, else raises."""
-    if requested != "auto":
-        return requested
+    """Resolve --backend to a concrete backend name. On-device MLX is the only
+    supported fine-tune path; there is no cloud-GPU / Unsloth fallback.
+
+    'auto' (and 'mlx') resolve to MLX on macOS arm64 when mlx-lm is importable;
+    otherwise we raise rather than fall back to any remote/cloud trainer.
+    """
+    if requested not in ("auto", "mlx"):
+        raise SystemExit(
+            f"tune-train-local: unsupported backend {requested!r}. On-device MLX "
+            "is the only fine-tune path (cloud GPU removed 2026-06-08)."
+        )
     from hyperswarm.tuners.lora_mlx import is_mlx_available
     if is_mlx_available():
         return "mlx"
-    from hyperswarm.tuners.lora_local import is_cuda_available
-    if is_cuda_available():
-        return "unsloth"
     raise SystemExit(
-        "tune-train-local: no compatible backend detected. Install mlx-lm on "
-        "macOS arm64 or torch+unsloth on a CUDA host, then re-run with "
-        "--backend mlx or --backend unsloth explicitly."
+        "tune-train-local: MLX backend unavailable. Fine-tuning runs on-device "
+        "via mlx-lm on macOS arm64 only — install mlx-lm and re-run. (Cloud GPU "
+        "fine-tuning was removed 2026-06-08.)"
     )
 
 
+# retired 2026-06-08: cloud GPU fine-tuning removed — on-device MLX only per Shawn.
 def cmd_tune_train_local(args: argparse.Namespace) -> int:
-    """LoRA fine-tune locally. Auto-detects MLX (Mac primary) vs Unsloth (CUDA)."""
-    backend = _resolve_train_backend(args.backend)
+    """LoRA fine-tune on-device via MLX (the only fine-tune path)."""
+    backend = _resolve_train_backend(args.backend)  # always "mlx"
     kwargs: dict = {"agent": args.agent}
     if args.base_model:
         kwargs["base_model"] = args.base_model
     if args.min_new_examples is not None:
         kwargs["min_new_examples"] = args.min_new_examples
-    if backend == "mlx":
-        from hyperswarm.tuners.lora_mlx import MLXLoRATrainer
-        if args.rank is not None:
-            kwargs["num_layers"] = args.rank
-        if args.iters is not None:
-            kwargs["iters"] = args.iters
-        if args.export_gguf:
-            print(
-                "warning: --export-gguf is Unsloth-only (deferred for MLX). "
-                "Ignoring; the MLX adapter is loadable via mlx_lm.generate.",
-                file=sys.stderr,
-            )
-        trainer = MLXLoRATrainer(**kwargs)
-    else:  # unsloth
-        from hyperswarm.tuners.lora_local import LocalLoRATrainer
-        if args.rank is not None:
-            kwargs["lora_rank"] = args.rank
-        if args.epochs is not None:
-            kwargs["n_epochs"] = args.epochs
-        kwargs["export_gguf"] = args.export_gguf
-        trainer = LocalLoRATrainer(**kwargs)
+    from hyperswarm.tuners.lora_mlx import MLXLoRATrainer
+    if args.rank is not None:
+        kwargs["num_layers"] = args.rank
+    if args.iters is not None:
+        kwargs["iters"] = args.iters
+    if args.export_gguf:
+        print(
+            "warning: --export-gguf is handled by the separate tune-export-gguf "
+            "command for MLX. Ignoring; the MLX adapter is loadable via "
+            "mlx_lm.generate, or run `hyperswarm tune-export-gguf` to make a GGUF.",
+            file=sys.stderr,
+        )
+    trainer = MLXLoRATrainer(**kwargs)
 
     result = trainer.train()
     result["backend"] = backend

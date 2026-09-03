@@ -1,3 +1,8 @@
+# retired 2026-06-08: cloud GPU fine-tuning removed — on-device MLX only per Shawn.
+#   This Unsloth/CUDA trainer is kept on disk for git history but is no longer
+#   wired into the tuner registry (hyperswarm/tuners/__init__.py) or the CLI
+#   (`tune-train-local` dispatches to MLX unconditionally). On-device MLX
+#   (lora_mlx.py) is the only fine-tune path.
 """Self-hosted LoRA fine-tune (Karpathy-style: own model, own data, own training).
 
 Pattern reference: Karpathy's framing of "weights vs context" — this module is

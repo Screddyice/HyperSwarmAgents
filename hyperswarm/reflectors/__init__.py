@@ -9,9 +9,6 @@ Pattern reference: Park et al, "Generative Agents: Interactive Simulacra
 of Human Behavior" (2023) — Memory Stream → Reflection → Retrieval → Planning.
 This module implements the Reflection layer.
 """
-from hyperswarm.reflectors.openclaw_session import (
-    OpenClawSessionReflector,
-    reflect_agent,
-)
+# retired 2026-06-08: openclaw decommissioned, replaced by Hermes memory provider
 
-__all__ = ["OpenClawSessionReflector", "reflect_agent"]
+__all__: list[str] = []

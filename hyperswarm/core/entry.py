@@ -22,6 +22,12 @@ class Entry:
     timestamp: _dt.datetime = field(
         default_factory=lambda: _dt.datetime.now(_dt.timezone.utc)
     )
+    # Where the store persisted this entry (e.g. markdown file path). Storage
+    # metadata, not content: set by the Store on write/read/list_since, never
+    # serialized into the markdown (it would go stale on sync/copy). Corpus
+    # ingestion uses it as source_entry_path for dedup and as the cursor
+    # tiebreaker at the boundary timestamp.
+    storage_id: str = ""
 
     def to_markdown(self) -> str:
         ts = self.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")

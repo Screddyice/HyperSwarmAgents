@@ -9,11 +9,17 @@ Config:
     [[sync]]
     type = "rsync_ssh"
     direction = "push"        # or "pull"
-    to_host = "shawn-mac"
+    to_host = "hostinger"     # ssh alias for neb-brain-hostinger
     to_path = "~/HyperSwarm/entries"
     from_path = "~/HyperSwarm/entries"   # optional, defaults to to_path
-    only_on_host = "neb-server"          # optional gate — sync only runs
+    only_on_host = "shawn-mac"           # optional gate — sync only runs
                                          # when local hostname matches
+
+Fleet as of 2026-06-08: Mac <-> neb-brain-hostinger (Hostinger) only. The
+old AWS fleet (neb-server / cliqk-server / trc-server) was destroyed; openclaw
+was replaced by the Hermes memory provider. All host targets are config-driven
+(to_host / only_on_host) — nothing is hardcoded, so the fleet can change again
+purely by editing config.toml.
 """
 from __future__ import annotations
 

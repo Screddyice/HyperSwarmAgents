@@ -65,7 +65,7 @@ def _fake_export_gguf_ok(*, model, tokenizer, run_dir: Path) -> str:
 
 def test_train_skips_empty_corpus(tmp_path: Path):
     t = LocalLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         train_fn=_fake_train_ok,
@@ -76,9 +76,9 @@ def test_train_skips_empty_corpus(tmp_path: Path):
 
 
 def test_train_skips_below_threshold(tmp_path: Path):
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=10)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=10)
     t = LocalLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -90,9 +90,9 @@ def test_train_skips_below_threshold(tmp_path: Path):
 
 
 def test_train_completes_and_records_adapter(tmp_path: Path):
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=60)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=60)
     t = LocalLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -102,7 +102,7 @@ def test_train_completes_and_records_adapter(tmp_path: Path):
     assert res["status"] == "completed"
     assert res["backend"] == BACKEND_NAME
     assert "adapter" in res["adapter_path"]
-    state = json.loads((tmp_path / "state" / "jarvis" / "finetune-state.json").read_text())
+    state = json.loads((tmp_path / "state" / "screddy" / "finetune-state.json").read_text())
     assert state["backend"] == BACKEND_NAME
     assert state["current_adapter"] == res["adapter_path"]
     assert state["last_run_status"] == "completed"
@@ -111,9 +111,9 @@ def test_train_completes_and_records_adapter(tmp_path: Path):
 
 
 def test_train_with_gguf_export(tmp_path: Path):
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=60)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=60)
     t = LocalLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -124,16 +124,16 @@ def test_train_with_gguf_export(tmp_path: Path):
     res = t.train()
     assert res["status"] == "completed"
     assert res["gguf_path"].endswith(".gguf")
-    state = json.loads((tmp_path / "state" / "jarvis" / "finetune-state.json").read_text())
+    state = json.loads((tmp_path / "state" / "screddy" / "finetune-state.json").read_text())
     assert state["current_gguf"] == res["gguf_path"]
 
 
 def test_train_failure_marks_failed_and_preserves_prior_adapter(tmp_path: Path):
     """A failed second run should NOT overwrite the current_adapter from a
     prior successful run."""
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=60)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=60)
     t = LocalLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -145,9 +145,9 @@ def test_train_failure_marks_failed_and_preserves_prior_adapter(tmp_path: Path):
     assert first_adapter
 
     # Grow corpus + queue a second run that fails
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=120)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=120)
     t2 = LocalLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -157,7 +157,7 @@ def test_train_failure_marks_failed_and_preserves_prior_adapter(tmp_path: Path):
     assert res2["status"] == "failed"
     assert "OOM" in res2["error"]
 
-    state = json.loads((tmp_path / "state" / "jarvis" / "finetune-state.json").read_text())
+    state = json.loads((tmp_path / "state" / "screddy" / "finetune-state.json").read_text())
     # Current adapter from FIRST successful run is still there
     assert state["current_adapter"] == first_adapter
     # Last-run status reflects the most recent FAILED attempt
@@ -171,16 +171,16 @@ def test_train_failure_marks_failed_and_preserves_prior_adapter(tmp_path: Path):
 def test_train_skips_when_previous_run_marked_running(tmp_path: Path):
     """If state was left in 'running' (previous trainer crashed mid-run),
     we don't blindly start a new one until something marks it failed."""
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=60)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=60)
     t = LocalLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
         train_fn=_fake_train_ok,
     )
     # Manually seed state to running
-    state_path = tmp_path / "state" / "jarvis" / "finetune-state.json"
+    state_path = tmp_path / "state" / "screddy" / "finetune-state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
         json.dumps(
@@ -202,9 +202,9 @@ def test_train_skips_when_previous_run_marked_running(tmp_path: Path):
 
 
 def test_status_returns_current_adapter_after_success(tmp_path: Path):
-    _write_corpus(tmp_path / "tune" / "jarvis" / "corpus.jsonl", n=60)
+    _write_corpus(tmp_path / "tune" / "screddy" / "corpus.jsonl", n=60)
     t = LocalLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
         min_new_examples=50,
@@ -220,7 +220,7 @@ def test_status_returns_current_adapter_after_success(tmp_path: Path):
 
 def test_status_no_run_yet(tmp_path: Path):
     t = LocalLoRATrainer(
-        agent="jarvis",
+        agent="screddy",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
     )

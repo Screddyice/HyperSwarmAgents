@@ -31,7 +31,7 @@ def test_extract_turn_user():
             "type": "message",
             "id": "abc",
             "timestamp": "2026-05-09T04:49:00Z",
-            "message": {"role": "user", "content": "hey jarvis can you ping the team"},
+            "message": {"role": "user", "content": "hey screddy can you ping the team"},
         }
     )
     t = extract_turn(line)
@@ -96,7 +96,7 @@ def test_extract_turn_handles_malformed_json():
 
 
 def _write_session(tmp_path: Path, sid: str, lines: list[dict]) -> Path:
-    sdir = tmp_path / "agents" / "jarvis" / "sessions"
+    sdir = tmp_path / "agents" / "screddy" / "sessions"
     sdir.mkdir(parents=True, exist_ok=True)
     p = sdir / f"{sid}.jsonl"
     with open(p, "w") as f:
@@ -257,12 +257,12 @@ body content here.
 """
     out = _inject_provenance(
         block,
-        agent="jarvis",
+        agent="screddy",
         host="trc-server",
         session_id="abc-123",
         timestamp="2026-05-09T05:00:00Z",
     )
-    assert "originAgent: jarvis" in out
+    assert "originAgent: screddy" in out
     assert "originHost: trc-server" in out
     assert "originSession: abc-123" in out
     assert "originTimestamp: 2026-05-09T05:00:00Z" in out
@@ -280,7 +280,7 @@ originAgent: existing-agent
 ---
 body.
 """
-    out = _inject_provenance(block, agent="jarvis", host="trc-server", session_id="x", timestamp="t")
+    out = _inject_provenance(block, agent="screddy", host="trc-server", session_id="x", timestamp="t")
     # originAgent should remain the existing-agent value, not be overwritten
     assert "originAgent: existing-agent" in out
     # but originHost / originSession / originTimestamp are added
@@ -331,7 +331,7 @@ type: feedback
         return mock_llm_response
 
     r = OpenClawSessionReflector(
-        agent="jarvis",
+        agent="screddy",
         host="trc-server",
         agents_dir=tmp_path / "agents",
         output_base=output_base,
@@ -345,7 +345,7 @@ type: feedback
     written_path = Path(result["files"][0])
     assert written_path.exists()
     text = written_path.read_text()
-    assert "originAgent: jarvis" in text
+    assert "originAgent: screddy" in text
     assert "originHost: trc-server" in text
     assert "originSession: session-aaa" in text
     assert "Shawn prefers plain text emails" in text
@@ -363,7 +363,7 @@ def test_reflector_skips_when_llm_returns_nothing(tmp_path: Path):
         [{"type": "message", "message": {"role": "user", "content": "what time is it"}, "timestamp": "t"}],
     )
     r = OpenClawSessionReflector(
-        agent="jarvis",
+        agent="screddy",
         host="x",
         agents_dir=tmp_path / "agents",
         output_base=tmp_path / "out",
@@ -377,7 +377,7 @@ def test_reflector_skips_when_llm_returns_nothing(tmp_path: Path):
 
 def test_reflector_no_sessions_dir(tmp_path: Path):
     r = OpenClawSessionReflector(
-        agent="jarvis",
+        agent="screddy",
         agents_dir=tmp_path / "nonexistent",
         output_base=tmp_path / "out",
         state_dir=tmp_path / "state",
@@ -389,7 +389,7 @@ def test_reflector_no_sessions_dir(tmp_path: Path):
 def test_reflector_skips_trajectory_files(tmp_path: Path):
     """Sessions dir contains both `*.jsonl` (events) and `*.trajectory.jsonl` (different schema).
     Reflector must read only the former."""
-    sdir = tmp_path / "agents" / "jarvis" / "sessions"
+    sdir = tmp_path / "agents" / "screddy" / "sessions"
     sdir.mkdir(parents=True)
     # The event file (should be processed)
     (sdir / "abc.jsonl").write_text(
@@ -406,7 +406,7 @@ def test_reflector_skips_trajectory_files(tmp_path: Path):
         return ""  # no memory
 
     r = OpenClawSessionReflector(
-        agent="jarvis",
+        agent="screddy",
         agents_dir=tmp_path / "agents",
         output_base=tmp_path / "out",
         state_dir=tmp_path / "state",

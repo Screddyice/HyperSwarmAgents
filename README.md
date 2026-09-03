@@ -12,7 +12,7 @@ Four extension points, each with a tiny interface. You combine reference impleme
 
 | Extension point | What it does | Reference implementations |
 |---|---|---|
-| **Source** | Captures session state from a specific runtime — usually via a hook, wrapper, or directory watcher | `claude_code`, `codex`, `openclaw`, `directory_watcher` |
+| **Source** | Captures session state from a specific runtime — usually via a hook, wrapper, or directory watcher | `mem0_session` (Mem0 Platform, significance-gated), `claude_harness`, `claude_code`, `codex`, `claude_mem_session` (retired feed), `directory_watcher` |
 | **Store** | Persists captured entries — append-only by default for auditability | `markdown` (default), `sqlite` |
 | **Sync** | Moves entries between nodes when capture happens off the canonical host | `rsync_ssh` (default), `s3`, `git` |
 | **Scope** | Tags each entry so reads can filter by project / team / company / whatever | `path_prefix`, `git_remote`, `custom_callable` |
@@ -117,6 +117,17 @@ type = "cursor"
 
 That's it. The orchestrator calls `install()` on first run and `capture()` on every hook event.
 
+### A note on `cwd` in tests
+
+`capture()` receives a real `cwd`, and scope resolution derives the entry's tag from it, so
+some tests pin literal workspace paths rather than `tmp_path`. Those literals go stale when
+the workspace moves — the 2026-08-21 rename of `~/projects/Screddyice` to `~/projects/SRC`
+broke `tests/test_mem0_session_source.py` this way.
+
+The failure is easy to misread: the test exercises the gate-rejection path, so a stale `cwd`
+surfaces as a scope/gating assertion rather than anything path-shaped. If a `cwd`-dependent
+test starts failing after a workspace move, check the literal before the logic.
+
 ## Reflectors — making the brain smarter over time
 
 Sources capture-and-store. **Reflectors synthesize across sessions** so the agent gets smarter the longer it's running. Pattern reference: Park et al, "Generative Agents: Interactive Simulacra of Human Behavior" (2023) — Memory Stream → Reflection → Retrieval → Planning. This module implements the Reflection layer.
@@ -124,7 +135,7 @@ Sources capture-and-store. **Reflectors synthesize across sessions** so the agen
 ### `hyperswarm reflect`
 
 ```bash
-hyperswarm reflect --agent jarvis
+hyperswarm reflect --agent screddy
 ```
 
 Reads new turns from `~/.openclaw/agents/<agent>/sessions/*.jsonl`, calls an LLM with a strict "extract only high-signal learnings" prompt, and writes zero-or-more YAML-frontmatter markdown blocks into `~/.openclaw/claude-code-history/projects/-Users-screddy-projects/memory/server-learned/<agent>/`. Per-session cursor in `~/.local/state/hyperswarm/reflect/<agent>.json` keeps the next run idempotent.
@@ -138,7 +149,7 @@ The output dir is the same one openclaw's `memory_search` already indexes via `e
 **Recommended cron** on each server:
 
 ```bash
-0 */6 * * * /home/ubuntu/.local/bin/hyperswarm reflect --agent jarvis >> ~/.local/state/hyperswarm/reflect.log 2>&1
+0 */6 * * * /home/ubuntu/.local/bin/hyperswarm reflect --agent screddy >> ~/.local/state/hyperswarm/reflect.log 2>&1
 ```
 
 ### Building your own reflector
@@ -147,7 +158,7 @@ The output dir is the same one openclaw's `memory_search` already indexes via `e
 from hyperswarm.reflectors.openclaw_session import OpenClawSessionReflector
 
 result = OpenClawSessionReflector(
-    agent="jarvis",
+    agent="screddy",
     host="my-server",
     output_base="~/wherever/memory/server-learned",
     llm_call=my_llm_function,  # for tests or alternate providers
@@ -250,7 +261,7 @@ CUDA-only. Cleanly raises `RuntimeError("Local LoRA training requires ...")` on 
 
 ### Optional: GGUF export for Ollama
 
-Pass `--export-gguf` and the trainer also writes a quantized GGUF file alongside the adapter. Ollama can `ollama create my-jarvis -f Modelfile` against that GGUF, making the personalized model loadable on any of the CPU inference servers.
+Pass `--export-gguf` and the trainer also writes a quantized GGUF file alongside the adapter. Ollama can `ollama create my-screddy -f Modelfile` against that GGUF, making the personalized model loadable on any of the CPU inference servers.
 
 ## Watchers — event-driven, no constant crons
 
@@ -259,7 +270,7 @@ Reflectors and Tuners are CLI commands. Running them on a calendar (`*/6 * * *`)
 ### `hyperswarm watch`
 
 ```bash
-hyperswarm watch --agent jarvis --agent clawdbot
+hyperswarm watch --agent screddy --agent clawdbot
 ```
 
 Polls session JSONLs every 30 seconds (configurable). When a session has been idle for 5 minutes (configurable via `--debounce`), the watcher fires:
@@ -283,7 +294,7 @@ After=network-online.target
 
 [Service]
 EnvironmentFile=-/home/ubuntu/.openclaw/.env
-ExecStart=%h/.local/bin/hyperswarm watch --agent jarvis --agent clawdbot
+ExecStart=%h/.local/bin/hyperswarm watch --agent screddy --agent clawdbot
 Restart=always
 RestartSec=10
 

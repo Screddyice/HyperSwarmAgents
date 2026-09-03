@@ -103,3 +103,39 @@ def test_capture_unknown_runtime_returns_error(tmp_path: Path, monkeypatch):
     cfg_path = _write_config(tmp_path)
     rc = _run_capture(monkeypatch, ["capture", "--runtime", "made-up-runtime", "--config", str(cfg_path)])
     assert rc != 0, "unknown runtime must return non-zero so hooks see the failure in their log"
+
+
+def test_capture_same_session_twice_writes_one_entry(tmp_path: Path, monkeypatch):
+    """Session-level idempotency: the same session can reach capture twice
+    (direct SessionEnd hook + the push-leftoff wrapper's resolver, or a manual
+    re-run) — the store must end up with exactly ONE entry for it."""
+    cfg_path = _write_config(tmp_path)
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_text(json.dumps({
+        "role": "user", "message": {"content": "Wire up the watchdog"}
+    }) + "\n")
+
+    payload = json.dumps({
+        "session_id": "dup-session",
+        "transcript_path": str(transcript),
+        "cwd": str(tmp_path / "subdir"),
+    })
+    args = ["capture", "--runtime", "claude_code", "--config", str(cfg_path)]
+    assert _run_capture(monkeypatch, args, payload) == 0
+    assert _run_capture(monkeypatch, args, payload) == 0  # duplicate -> skipped, still success
+
+    store = MarkdownStore({"path": f"{tmp_path}/store"})
+    entries = list(store.list_since(_dt.datetime.min.replace(tzinfo=_dt.timezone.utc)))
+    assert len(entries) == 1
+
+
+def test_capture_without_session_id_never_dedups(tmp_path: Path, monkeypatch):
+    """Entries with no session_id must not be swallowed by the dedup check."""
+    cfg_path = _write_config(tmp_path)
+    args = ["capture", "--runtime", "claude_code", "--config", str(cfg_path)]
+    assert _run_capture(monkeypatch, args, "") == 0
+    assert _run_capture(monkeypatch, args, "") == 0
+
+    store = MarkdownStore({"path": f"{tmp_path}/store"})
+    entries = list(store.list_since(_dt.datetime.min.replace(tzinfo=_dt.timezone.utc)))
+    assert len(entries) == 2
