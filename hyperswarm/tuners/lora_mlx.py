@@ -1,6 +1,10 @@
-"""LoRA fine-tune via Apple's MLX framework — primary backend on macOS.
+"""LoRA fine-tune via Apple's MLX framework — the ONLY fine-tune backend.
 
-Why this exists alongside the Unsloth/CUDA backend:
+retired 2026-06-08: cloud GPU fine-tuning removed — on-device MLX only per
+Shawn. There is no Unsloth/CUDA fallback; this module is the single trainer the
+CLI dispatches to.
+
+Why MLX:
 
 - Apple Silicon (M1-M5+) has unified memory, so an M-series Max with 32-64GB
   RAM can LoRA-tune an 8B model without spending a dollar on cloud GPU
@@ -8,19 +12,13 @@ Why this exists alongside the Unsloth/CUDA backend:
   zero-config compared to setting up CUDA elsewhere
 - Free + private + always-available on the user's primary workstation
 
-When to use this vs `lora_local.py` (Unsloth/CUDA):
-- Default to MLX on macOS arm64 (this module)
-- Fall back to Unsloth on Linux + CUDA (the other module)
-- The CLI's `tune-train-local` command auto-detects via platform/arch sniff
-
 Wraps `python -m mlx_lm lora --train` as a subprocess. We use the CLI rather
 than the Python API because mlx_lm's API surface still churns release-to-release
 and the CLI is explicitly stable. The cost is one extra process spawn per
 training cycle, which is trivial compared to the actual training time.
 
-State file shape mirrors `lora_local.py` exactly so any downstream router
-that reads `current_adapter` / `current_gguf` / `backend` keeps working
-across backend swaps.
+State file shape matches the retired `lora_local.py` exactly so any downstream
+router that reads `current_adapter` / `current_gguf` / `backend` keeps working.
 """
 from __future__ import annotations
 

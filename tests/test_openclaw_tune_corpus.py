@@ -16,7 +16,7 @@ from hyperswarm.tuners.openclaw_corpus import (
 
 
 def _write_session(tmp_path: Path, sid: str, lines: list[dict]) -> Path:
-    sdir = tmp_path / "agents" / "jarvis" / "sessions"
+    sdir = tmp_path / "agents" / "screddy" / "sessions"
     sdir.mkdir(parents=True, exist_ok=True)
     p = sdir / f"{sid}.jsonl"
     with open(p, "w") as f:
@@ -46,12 +46,12 @@ def _assistant(text: str) -> dict:
 
 def test_iter_pairs_basic():
     lines = [
-        json.dumps(_user("hey jarvis can you ping the team")),
+        json.dumps(_user("hey screddy can you ping the team")),
         json.dumps(_assistant("Sure, drafting a quick message now")),
     ]
     pairs = list(_iter_pairs_from_lines(iter(lines)))
     assert len(pairs) == 1
-    assert pairs[0].user == "hey jarvis can you ping the team"
+    assert pairs[0].user == "hey screddy can you ping the team"
     assert pairs[0].assistant == "Sure, drafting a quick message now"
 
 
@@ -128,7 +128,7 @@ def test_filter_rejects_oversize():
 
 def test_filter_accepts_normal_size():
     p = TurnPair(
-        user="hey jarvis can you pull the linear board",
+        user="hey screddy can you pull the linear board",
         assistant="Sure, fetching the active items now from team nebula board",
         timestamp="t",
     )
@@ -140,11 +140,11 @@ def test_filter_accepts_normal_size():
 
 def test_pair_to_example_shape_matches_openai_fine_tune_format():
     p = TurnPair(user="what is rs21", assistant="They're an analytics consultancy.", timestamp="t")
-    ex = pair_to_example(p, agent="jarvis")
+    ex = pair_to_example(p, agent="screddy")
     assert "messages" in ex
     msgs = ex["messages"]
     assert [m["role"] for m in msgs] == ["system", "user", "assistant"]
-    assert "jarvis" in msgs[0]["content"]
+    assert "screddy" in msgs[0]["content"]
     assert "Shawn" in msgs[0]["content"]
     assert msgs[1]["content"] == "what is rs21"
     assert msgs[2]["content"] == "They're an analytics consultancy."
@@ -152,7 +152,7 @@ def test_pair_to_example_shape_matches_openai_fine_tune_format():
 
 def test_pair_to_example_custom_system_prompt_overrides_default():
     p = TurnPair(user="hi" * 10, assistant="hello there friend, how can I help today", timestamp="t")
-    ex = pair_to_example(p, agent="jarvis", system_prompt="You are a butler.")
+    ex = pair_to_example(p, agent="screddy", system_prompt="You are a butler.")
     assert ex["messages"][0]["content"] == "You are a butler."
 
 
@@ -171,7 +171,7 @@ def test_collector_appends_examples_and_tracks_cursor(tmp_path: Path):
         ],
     )
     c = OpenClawCorpusCollector(
-        agent="jarvis",
+        agent="screddy",
         host="trc-server",
         agents_dir=tmp_path / "agents",
         corpus_base=tmp_path / "tune",
@@ -187,7 +187,7 @@ def test_collector_appends_examples_and_tracks_cursor(tmp_path: Path):
     assert res2["total_examples"] == 2
 
     # Validate corpus file is well-formed JSONL with OpenAI shape
-    corpus = (tmp_path / "tune" / "jarvis" / "corpus.jsonl").read_text().strip().splitlines()
+    corpus = (tmp_path / "tune" / "screddy" / "corpus.jsonl").read_text().strip().splitlines()
     assert len(corpus) == 2
     for line in corpus:
         ex = json.loads(line)
@@ -208,7 +208,7 @@ def test_collector_filters_short_pairs(tmp_path: Path):
         ],
     )
     c = OpenClawCorpusCollector(
-        agent="jarvis",
+        agent="screddy",
         agents_dir=tmp_path / "agents",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
@@ -218,7 +218,7 @@ def test_collector_filters_short_pairs(tmp_path: Path):
 
 
 def test_collector_skips_trajectory_files(tmp_path: Path):
-    sdir = tmp_path / "agents" / "jarvis" / "sessions"
+    sdir = tmp_path / "agents" / "screddy" / "sessions"
     sdir.mkdir(parents=True)
     (sdir / "abc.jsonl").write_text(
         json.dumps(_user("a real prompt that is long enough"))
@@ -228,7 +228,7 @@ def test_collector_skips_trajectory_files(tmp_path: Path):
     )
     (sdir / "abc.trajectory.jsonl").write_text("garbage that should not be parsed\n")
     c = OpenClawCorpusCollector(
-        agent="jarvis",
+        agent="screddy",
         agents_dir=tmp_path / "agents",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",
@@ -239,7 +239,7 @@ def test_collector_skips_trajectory_files(tmp_path: Path):
 
 def test_collector_no_sessions_dir(tmp_path: Path):
     c = OpenClawCorpusCollector(
-        agent="jarvis",
+        agent="screddy",
         agents_dir=tmp_path / "nonexistent",
         corpus_base=tmp_path / "tune",
         state_dir=tmp_path / "state",

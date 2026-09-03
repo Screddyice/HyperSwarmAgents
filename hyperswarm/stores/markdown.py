@@ -50,10 +50,13 @@ class MarkdownStore(Store):
         runtime_slug = re.sub(r"[^A-Za-z0-9._-]", "-", entry.runtime or "unknown")
         path = day_dir / f"{ts_str}_{runtime_slug}_{short}.md"
         path.write_text(entry.to_markdown())
+        entry.storage_id = str(path)
         return str(path)
 
     def read(self, storage_id: str) -> Entry:
-        return Entry.from_markdown(Path(storage_id).read_text())
+        entry = Entry.from_markdown(Path(storage_id).read_text())
+        entry.storage_id = storage_id
+        return entry
 
     def list_since(self, since: _dt.datetime) -> Iterable[Entry]:
         if not self.entries_dir.exists():
@@ -84,4 +87,5 @@ class MarkdownStore(Store):
                         except Exception:
                             continue
                         if entry.timestamp >= since:
+                            entry.storage_id = str(f)
                             yield entry
