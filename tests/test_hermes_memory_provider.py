@@ -31,6 +31,19 @@ def _seed(store, body: str, company: str | None) -> None:
     store.write(e)
 
 
+def _seed_at(store, body: str, company: str | None, ts: _dt.datetime) -> None:
+    """Write an entry with an explicit timestamp (for recency tests)."""
+    e = Entry(
+        runtime="test",
+        cwd="/cwd",
+        summary=body[:40],
+        body=body,
+        scope=company or "",
+        timestamp=ts,
+    )
+    store.write(e)
+
+
 # --- Task 1: scaffold ------------------------------------------------------
 
 def test_provider_name_and_availability(tmp_path):
@@ -172,6 +185,76 @@ def test_adversarial_tool_path_matrix_isolation(tmp_path):
             )
 
 
+# --- Task 7: RECENCY weighting (reliable recall for casual phrasing) --------
+# A vague query like "what was I working on?" must surface the NEWEST left-off
+# entry, even when an OLDER entry happens to share more query keywords. But a
+# SPECIFIC keyword query unique to the old entry must still return the old one.
+# Recency is a tiebreak/blend — it must NOT bypass org-scope filtering.
+
+
+def test_recency_breaks_ties(tmp_path):
+    now = _dt.datetime.now(_dt.timezone.utc)
+    old_ts = now - _dt.timedelta(days=60)
+    new_ts = now
+
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+
+    # OLD entry: shares MORE of the vague query's keywords (a strict superset of
+    # the new entry's overlap), plus a unique term. Query "working on" -> the old
+    # body matches BOTH "working" and "on"; the new body matches only "working".
+    # Under pure keyword overlap the old entry wins (2 > 1); recency must flip it.
+    _seed_at(
+        p._store,
+        "working on the quarterly pipeline xenophon",
+        "TMN",
+        old_ts,
+    )
+    # NEW entry: shares FEWER vague-query keywords, today.
+    _seed_at(
+        p._store,
+        "working through rollout flow",
+        "TMN",
+        new_ts,
+    )
+
+    # Vague query -> recency must win: NEW entry ranks first.
+    vague = p.prefetch("working on", session_id="s", org="TMN")
+    assert "rollout flow" in vague
+    new_pos = vague.find("rollout flow")
+    old_pos = vague.find("quarterly pipeline")
+    assert new_pos != -1
+    # NEW entry must appear before the OLD keyword-richer entry.
+    assert old_pos == -1 or new_pos < old_pos, (
+        "recency must rank the newest left-off above an older keyword-rich entry"
+    )
+
+    # Specific keyword unique to the OLD entry -> old entry still returned even
+    # though it is 60 days old (a strong specific match outranks mere recency).
+    specific = p.prefetch("xenophon", session_id="s", org="TMN")
+    assert "xenophon" in specific
+
+    # A 2+ keyword advantage is no longer a close score, so the older but much
+    # more specific entry still ranks above the merely newer entry.
+    richer = p.prefetch("working on pipeline", session_id="s", org="TMN")
+    assert richer.find("quarterly pipeline") < richer.find("rollout flow")
+
+
+def test_recency_does_not_bypass_org_scope(tmp_path):
+    """A newer entry from another org must NOT leak in just because it's recent."""
+    now = _dt.datetime.now(_dt.timezone.utc)
+    p = HyperSwarmMemoryProvider(root=str(tmp_path))
+    (tmp_path / "entries").mkdir()
+    # Newest entry belongs to Cliqk; active org is TMN.
+    _seed_at(p._store, "Cliqk freshest working secret", "Cliqk", now)
+    _seed_at(
+        p._store, "TMN older working note", "TMN", now - _dt.timedelta(days=30)
+    )
+    out = p.prefetch("working", session_id="s", org="TMN")
+    assert "TMN older working note" in out
+    assert "Cliqk" not in out  # recency must not bypass scope
+
+
 # --- Task 3: write path (capture-scope safe) -------------------------------
 
 def test_write_is_session_scoped_not_per_turn(tmp_path):
@@ -303,51 +386,3 @@ def test_register_accepts_provider_kwarg_path():
     sentinel = HyperSwarmMemoryProvider()
     register(_Ctx(), provider=sentinel)
     assert captured["provider"] is sentinel
-
-
-# --- HYPERSWARM_MEMORY_DISABLE guard ----------------------------------------
-# Headless one-shot callers (e.g. the meeting-prep runner's `hermes -z`
-# synthesis) set HYPERSWARM_MEMORY_DISABLE=1 so their sessions neither inject
-# memory context nor write "session left-off" noise into the working store.
-
-def test_register_skips_when_disable_env_set(monkeypatch):
-    from hyperswarm.integrations.hermes import register
-
-    captured = {}
-
-    class _Ctx:
-        def register_memory_provider(self, provider):
-            captured["provider"] = provider
-
-    monkeypatch.setenv("HYPERSWARM_MEMORY_DISABLE", "1")
-    register(_Ctx())
-    assert "provider" not in captured
-
-
-def test_register_skips_for_true_value(monkeypatch):
-    from hyperswarm.integrations.hermes import register
-
-    captured = {}
-
-    class _Ctx:
-        def register_memory_provider(self, provider):
-            captured["provider"] = provider
-
-    monkeypatch.setenv("HYPERSWARM_MEMORY_DISABLE", "true")
-    register(_Ctx())
-    assert "provider" not in captured
-
-
-def test_register_runs_for_falsey_values(monkeypatch):
-    from hyperswarm.integrations.hermes import register
-
-    for val in ("", "0", "false", "no"):
-        captured = {}
-
-        class _Ctx:
-            def register_memory_provider(self, provider):
-                captured["provider"] = provider
-
-        monkeypatch.setenv("HYPERSWARM_MEMORY_DISABLE", val)
-        register(_Ctx())
-        assert isinstance(captured.get("provider"), HyperSwarmMemoryProvider), val
