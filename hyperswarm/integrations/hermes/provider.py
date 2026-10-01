@@ -37,20 +37,19 @@ _RECALL_WINDOW_DAYS = 365
 _TOP_K = 5
 _MAX_ENTRY_CHARS = 500
 
-# RECENCY weighting. Ranking blends keyword overlap with a recency component so
+# RECENCY weighting. Ranking treats keyword scores within one match as close so
 # casual/vague queries ("what was I working on?") surface the NEWEST left-off
-# instead of an older keyword-rich entry. The recency component is bounded to
-# (0, 1] (newest -> ~1, decaying with age) and weighted by ``_RECENCY_WEIGHT``.
+# instead of an older entry that happens to match one extra low-signal word.
+# The recency component is bounded to (0, 1] (newest -> ~1, decaying with age).
 #
-# Calibration: with _RECENCY_WEIGHT just above 1, a single extra keyword match
-# (the typical vague-phrasing case, e.g. "working on" matching one more low-
-# signal word) does NOT outrank a much newer entry — recency is the dominant
-# tiebreak when keyword scores are close. But a SPECIFIC query whose unique term
-# matches ONLY the old entry still returns it: the other entries score 0 and are
-# filtered out entirely, so recency never has the chance to bury a unique hit.
-# A genuinely keyword-richer match (2+ more terms) still beats mere recency.
+# Calibration: a single extra keyword match (the typical vague-phrasing case,
+# e.g. "working on" matching one more low-signal word) does NOT outrank a much
+# newer entry — recency is the dominant tiebreak when keyword scores are close.
+# But a SPECIFIC query whose unique term matches ONLY the old entry still
+# returns it: the other entries score 0 and are filtered out entirely, so
+# recency never has the chance to bury a unique hit. A genuinely keyword-richer
+# match (2+ more terms) still beats mere recency.
 # Deterministic, no external deps.
-_RECENCY_WEIGHT = 1.1
 _RECENCY_HALFLIFE_DAYS = 30.0
 
 
@@ -159,12 +158,7 @@ class HyperSwarmMemoryProvider:  # duck-types Hermes MemoryProvider ABC
         since = now - _dt.timedelta(days=_RECALL_WINDOW_DAYS)
         terms = [w for w in query.lower().split() if w]
 
-        # Blended ranking: keyword_overlap + _RECENCY_WEIGHT * recency. With
-        # _RECENCY_WEIGHT < 1, one extra UNIQUE keyword match (a specific query)
-        # outranks a merely-newer entry; when keyword scores tie or are near
-        # zero (vague query) recency dominates. Carry timestamp as a final
-        # deterministic tiebreak.
-        hits: list[tuple[float, _dt.datetime, Entry]] = []
+        hits: list[tuple[int, float, _dt.datetime, Entry]] = []
         for entry in self._store.list_since(since):
             # ORG ISOLATION: skip any entry not visible to the active org.
             if not self._visible(entry, active):
@@ -173,15 +167,19 @@ class HyperSwarmMemoryProvider:  # duck-types Hermes MemoryProvider ABC
             keyword_score = sum(1 for w in terms if w in body_lc)
             if not keyword_score:
                 continue
-            blended = keyword_score + _RECENCY_WEIGHT * self._recency_score(entry, now)
-            hits.append((blended, entry.timestamp, entry))
+            hits.append((keyword_score, self._recency_score(entry, now), entry.timestamp, entry))
 
         if not hits:
             return ""
 
-        hits.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        max_keyword_score = max(score for score, _, _, _ in hits)
+        ranked_hits = [
+            (0 if max_keyword_score - score <= 1 else score - max_keyword_score, recency, score, ts, entry)
+            for score, recency, ts, entry in hits
+        ]
+        ranked_hits.sort(key=lambda t: (t[0], t[1], t[2], t[3]), reverse=True)
         block = "\n\n".join(
-            f"- {entry.body.strip()[:_MAX_ENTRY_CHARS]}" for _, _, entry in hits[:_TOP_K]
+            f"- {entry.body.strip()[:_MAX_ENTRY_CHARS]}" for _, _, _, _, entry in ranked_hits[:_TOP_K]
         )
         return (
             "<memory-context>\n"

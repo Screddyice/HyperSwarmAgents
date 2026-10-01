@@ -213,15 +213,15 @@ def test_recency_breaks_ties(tmp_path):
     # NEW entry: shares FEWER vague-query keywords, today.
     _seed_at(
         p._store,
-        "working through onboarding flow",
+        "working through rollout flow",
         "TMN",
         new_ts,
     )
 
     # Vague query -> recency must win: NEW entry ranks first.
     vague = p.prefetch("working on", session_id="s", org="TMN")
-    assert "onboarding flow" in vague
-    new_pos = vague.find("onboarding flow")
+    assert "rollout flow" in vague
+    new_pos = vague.find("rollout flow")
     old_pos = vague.find("quarterly pipeline")
     assert new_pos != -1
     # NEW entry must appear before the OLD keyword-richer entry.
@@ -233,6 +233,11 @@ def test_recency_breaks_ties(tmp_path):
     # though it is 60 days old (a strong specific match outranks mere recency).
     specific = p.prefetch("xenophon", session_id="s", org="TMN")
     assert "xenophon" in specific
+
+    # A 2+ keyword advantage is no longer a close score, so the older but much
+    # more specific entry still ranks above the merely newer entry.
+    richer = p.prefetch("working on pipeline", session_id="s", org="TMN")
+    assert richer.find("quarterly pipeline") < richer.find("rollout flow")
 
 
 def test_recency_does_not_bypass_org_scope(tmp_path):

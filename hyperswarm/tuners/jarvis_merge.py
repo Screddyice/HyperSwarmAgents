@@ -1,11 +1,11 @@
 """Cross-node Jarvis corpus merger.
 
-Jarvis is Shawn-personal — one agent that runs on every node (Mac + NEB +
-Cliqk + TRC). To train ONE Jarvis adapter from all interaction history,
+Jarvis is Shawn-personal — one agent that runs on every governed node (NEB +
+Cliqk + TRC). To train ONE Jarvis adapter from governed interaction history,
 this module:
 
 1. rsyncs each remote source's session JSONLs into a local staging area
-   (no-op for the local Mac source).
+   (local sources are supported only when passed explicitly).
 2. Walks all staged JSONLs, namespaces session IDs by host so cursors don't
    collide across hosts that happen to share a session UUID, and runs the
    same pair-extraction the per-server collector uses.
@@ -72,18 +72,13 @@ class CorpusSource:
 
 
 def default_sources() -> list[CorpusSource]:
-    """Default Jarvis corpus sources: Mac + neb-server + cliqk-server + trc-server.
+    """Default Jarvis corpus sources: neb-server + cliqk-server + trc-server.
 
-    Mac reads Claude Code session jsonls. The three servers read openclaw's
-    Jarvis agent session jsonls. Each is overridable via the merger
-    constructor or the CLI's --source flag.
+    The servers read openclaw's Jarvis agent session jsonls. Personal home
+    directories are not included by default; add an explicit --source if a
+    governed local export should be merged.
     """
     return [
-        CorpusSource(
-            host="mac",
-            remote_path=str(_expand("~/.claude/projects/-Users-screddy-projects")),
-            ssh_alias=None,
-        ),
         CorpusSource(
             host="neb-server",
             remote_path="~/.openclaw/agents/jarvis/sessions",
